@@ -1,0 +1,11 @@
+# Block direct access to environment files and sensitive scripts
+<FilesMatch "^\.(env|git)">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "\.(sql|log|md|json)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+

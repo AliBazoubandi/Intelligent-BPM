@@ -1,0 +1,13 @@
+# Environment sensitive files
+.env
+.env.local
+.env.*.local
+
+# Database backups / dumps
+*.sql
+!db/schema.sql
+
+# Temporary & cache
+*.log
+.installed
+
