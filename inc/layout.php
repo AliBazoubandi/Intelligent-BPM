@@ -24,7 +24,7 @@ function user_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($pageTitle) ?> | پردازشگر فرآیند سازمان</title>
+<title><?= e($pageTitle) ?> | رابین‌فلو (RobinFlow)</title>
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -37,7 +37,7 @@ function user_header(array $id, string $active, string $pageTitle): void
                     <?= app_icon('brand', 'brand-svg', 26) ?>
                 </span>
                 <span class="brand-text">
-                    <b>پردازشگر فرآیند سازمان</b>
+                    <b>رابین‌فلو <span style="font-size:12px;font-weight:400;opacity:.85">(RobinFlow)</span></b>
                     <small>سامانه مدیریت و بهبود فرآیندها</small>
                 </span>
             </a>
@@ -106,7 +106,7 @@ function team_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($pageTitle) ?> | پنل تیم فرآیند</title>
+<title><?= e($pageTitle) ?> | پنل تیم رابین‌فلو (RobinFlow)</title>
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -119,7 +119,7 @@ function team_header(array $id, string $active, string $pageTitle): void
                     <?= app_icon('brand', 'brand-svg', 26) ?>
                 </span>
                 <span class="brand-text">
-                    <b>پردازشگر فرآیند سازمان</b>
+                    <b>رابین‌فلو <span style="font-size:12px;font-weight:400;opacity:.85">(RobinFlow)</span></b>
                     <small>پنل تیم مهندسی فرآیند</small>
                 </span>
             </a>

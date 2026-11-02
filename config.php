@@ -1,9 +1,12 @@
 <?php
 /**
- * تنظیمات پایه پردازشگر فرآیند سازمان
+ * تنظیمات پایه سامانه رابین‌فلو (RobinFlow)
+ * سامانه مدیریت و بهبود فرآیندهای سازمان — هوش تجاری رهباریان رابین
  * ساختار: /user (کاربران) | /team (تیم‌های فرآیند) | /processes (فایل‌های فرآیند)
  */
 
+define('APP_NAME', (string)env('APP_NAME', 'RobinFlow'));
+define('APP_TITLE_FA', 'رابین‌فلو');
 define('APP_ROOT', __DIR__);
 define('PROCESSES_ROOT', APP_ROOT . DIRECTORY_SEPARATOR . 'processes');
 
@@ -74,7 +77,7 @@ if (!defined('BASE_URL')) {
     $dir = trim(str_replace('\\', '/', dirname($scriptName)), '/');
     $base = trim(preg_replace('#(^|/)(user|team|inc)$#', '', $dir), '/');
     if (PHP_SAPI === 'cli' && empty($_SERVER['SCRIPT_NAME'])) {
-        define('BASE_URL', '/process');
+        define('BASE_URL', '');
     } else {
         define('BASE_URL', ($base === '' || $base === '.') ? '' : '/' . $base);
     }
