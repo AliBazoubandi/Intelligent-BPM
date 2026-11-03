@@ -13,12 +13,25 @@ $uid = (int)$id['id'];
 $notice = '';
 $error = '';
 
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 /* ارسال پاسخ جدید */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $impId = (int)($_POST['imp_id'] ?? 0);
+    $redirectUrl = 'discussion.php' . ($impId > 0 ? '?imp=' . $impId : '');
+
     if (!csrf_check($_POST['csrf'] ?? null)) {
-        $error = 'اعتبار صفحه منقضی شده است؛ دوباره تلاش کنید.';
+        flash_set('error', 'اعتبار صفحه منقضی شده است؛ دوباره تلاش کنید.');
+        header('Location: ' . $redirectUrl);
+        exit;
     } else {
-        $impId = (int)($_POST['imp_id'] ?? 0);
         $body = trim((string)($_POST['body'] ?? ''));
 
         // بررسی اینکه بهبود متعلق به این کاربر باشد
@@ -29,15 +42,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st->close();
 
         if (!$ok) {
-            $error = 'بهبود مورد نظر یافت نشد یا دسترسی به آن ندارید.';
+            flash_set('error', 'بهبود مورد نظر یافت نشد یا دسترسی به آن ندارید.');
+            header('Location: improvements.php');
+            exit;
         } elseif (mb_strlen($body) < 2) {
-            $error = 'متن پیام را وارد کنید.';
+            flash_set('error', 'متن پیام را وارد کنید.');
+            header('Location: ' . $redirectUrl);
+            exit;
         } else {
             $senderType = 'user';
             $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement',?,?,?,?)");
             $st->bind_param('isis', $impId, $senderType, $uid, $body);
             $st->execute();
             $st->close();
+            flash_set('ok', 'پاسخ شما با موفقیت ثبت شد.');
             header('Location: discussion.php?imp=' . $impId);
             exit;
         }

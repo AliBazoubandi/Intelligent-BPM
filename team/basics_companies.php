@@ -9,18 +9,37 @@ $db = app_db();
 
 $error = '';
 $notice = '';
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_check($_POST['csrf'] ?? null)) $error = 'اعتبار صفحه منقضی شده است.';
-    else {
+    if (!csrf_check($_POST['csrf'] ?? null)) {
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+    } else {
         $name = trim((string)($_POST['name'] ?? ''));
-        if (mb_strlen($name) < 2) $error = 'نام شرکت را وارد کنید.';
-        else {
+        if (mb_strlen($name) < 2) {
+            flash_set('error', 'نام شرکت را وارد کنید.');
+        } else {
             $st = $db->prepare('INSERT INTO Companies (Name) VALUES (?)');
-            try { $st->bind_param('s', $name); $st->execute(); $notice = 'شرکت «' . $name . '» ثبت شد.'; }
-            catch (Throwable) { $error = 'این شرکت قبلاً ثبت شده است.'; }
+            try {
+                $st->bind_param('s', $name);
+                $st->execute();
+                flash_set('ok', 'شرکت «' . $name . '» ثبت شد.');
+            } catch (Throwable) {
+                flash_set('error', 'این شرکت قبلاً ثبت شده است.');
+            }
             $st->close();
         }
     }
+    header('Location: basics_companies.php');
+    exit;
 }
 $res = $db->query(
     'SELECT c.ID, c.Name, c.Active,

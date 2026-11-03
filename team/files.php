@@ -16,6 +16,15 @@ $notice = '';
 $error = '';
 $badDir = ($abs === null);
 
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 if ($badDir) {
     // مسیر نامعتبر: فقط ریشه نمایش داده می‌شود و هیچ اکشنی اجرا نمی‌شود
     $error = 'مسیر درخواستی معتبر نیست (خارج از شاخه processes/).';
@@ -206,9 +215,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-    // بازخوانی مسیر/نقشه پس از تغییرات
-    $abs = fm_safe_abs($rel) ?? fm_root();
-    $map = fm_db_map($db, $rel);
+    if ($notice) {
+        flash_set('ok', $notice);
+    } elseif ($error) {
+        flash_set('error', $error);
+    }
+    $redir = 'files.php' . ($rel !== '' ? '?dir=' . rawurlencode($rel) : '');
+    header('Location: ' . $redir);
+    exit;
 }
 
 $list = fm_list($abs);

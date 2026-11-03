@@ -9,21 +9,36 @@ $db = app_db();
 
 $notice = '';
 $error = '';
+$filter = trim((string)($_GET['q'] ?? ''));
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_check($_POST['csrf'] ?? null)) $error = 'اعتبار صفحه منقضی شده است.';
-    else {
+    $redirectUrl = 'basics_users.php' . ($filter !== '' ? '?q=' . urlencode($filter) : '');
+    if (!csrf_check($_POST['csrf'] ?? null)) {
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+        header('Location: ' . $redirectUrl);
+        exit;
+    } else {
         $pid = (int)($_POST['personnel_id'] ?? 0);
         $act = (string)($_POST['action'] ?? '');
         if ($act === 'toggle') {
             $st = $db->prepare('UPDATE Personnel SET Active = 1 - Active WHERE ID = ?');
             $st->bind_param('i', $pid); $st->execute(); $st->close();
-            $notice = 'وضعیت کاربر تغییر کرد.';
+            flash_set('ok', 'وضعیت کاربر تغییر کرد.');
+            header('Location: ' . $redirectUrl);
+            exit;
         }
     }
 }
 if (!empty($_GET['created'])) $notice = 'کاربر «' . $_GET['created'] . '» با موفقیت ثبت شد.';
-
-$filter = trim((string)($_GET['q'] ?? ''));
 $sql = "SELECT p.*, c.Name AS CompanyName, t.TeamName
         FROM Personnel p
         LEFT JOIN Companies c ON c.ID = p.CompanyID

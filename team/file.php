@@ -40,52 +40,63 @@ $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPA
 $notice = '';
 $error = '';
 
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 /* ---------- پردازش اکشن‌ها ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $tabBack = (string)($_POST['tab'] ?? 'docs');
+    $redirectUrl = 'file.php?id=' . $procId . '&tab=' . urlencode($tabBack);
+
     if (!csrf_check($_POST['csrf'] ?? null)) {
-        $error = 'اعتبار صفحه منقضی شده است.';
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
     } elseif (!$isOwnerTeam) {
-        $error = 'فقط تیم مسئول این فرآیند می‌تواند پرونده را ویرایش کند.';
+        flash_set('error', 'فقط تیم مسئول این فرآیند می‌تواند پرونده را ویرایش کند.');
     } else {
         $action = (string)($_POST['action'] ?? '');
-        $tabBack = (string)($_POST['tab'] ?? 'docs');
 
         if ($action === 'upload' && isset($_FILES['doc'])) {
             $upErr = null;
             $saved = fm_store_upload($_FILES['doc'], rtrim($absDir, DIRECTORY_SEPARATOR), $upErr);
             if ($saved !== null) {
-                $notice = 'مستند «' . $saved . '» با موفقیت بارگذاری شد.';
+                flash_set('ok', 'مستند «' . $saved . '» با موفقیت بارگذاری شد.');
             } else {
-                $error = $upErr ?: 'خطا در ذخیره فایل.';
+                flash_set('error', $upErr ?: 'خطا در ذخیره فایل.');
             }
         } elseif ($action === 'delete_doc') {
             $f = fm_clean_name(basename((string)($_POST['file'] ?? '')));
             $fp = $f ? $absDir . $f : '';
             if ($f && is_file($fp) && !str_starts_with($f, '.')) {
                 unlink($fp);
-                $notice = 'فایل «' . $f . '» حذف شد.';
+                flash_set('ok', 'فایل «' . $f . '» حذف شد.');
             } else {
-                $error = 'فایل معتبر نیست.';
+                flash_set('error', 'فایل معتبر نیست.');
             }
         } elseif ($action === 'add_executor') {
             $persId = (int)($_POST['personnel_id'] ?? 0);
             $role = trim((string)($_POST['role'] ?? 'مجری')) ?: 'مجری';
             $exTeam = (int)($_POST['team_id'] ?? 0) ?: null;
             if ($persId <= 0 && !$exTeam) {
-                $error = 'نفر یا تیم مجری را انتخاب کنید.';
+                flash_set('error', 'نفر یا تیم مجری را انتخاب کنید.');
             } else {
                 $persIdVal = ($persId > 0) ? $persId : null;
                 $st = $db->prepare('INSERT INTO ProcessExecutors (ProcessID, PersonnelID, TeamID, Role) VALUES (?,?,?,?)');
                 $st->bind_param('iiis', $procId, $persIdVal, $exTeam, $role);
                 $st->execute(); $st->close();
-                $notice = 'مجری افزوده شد.';
+                flash_set('ok', 'مجری افزوده شد.');
             }
         } elseif ($action === 'remove_executor') {
             $exId = (int)($_POST['executor_id'] ?? 0);
             $st = $db->prepare('DELETE FROM ProcessExecutors WHERE ID = ? AND ProcessID = ?');
             $st->bind_param('ii', $exId, $procId);
             $st->execute(); $st->close();
-            $notice = 'مجری حذف شد.';
+            flash_set('ok', 'مجری حذف شد.');
         } elseif ($action === 'add_change') {
             $chType = (string)($_POST['change_type'] ?? 'revision');
             if (!in_array($chType, ['revision','replacement','addition','removal'], true)) $chType = 'revision';
@@ -95,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($chStatus, ['pending','approved','applied','rejected'], true)) $chStatus = 'pending';
             $impId = (int)($_POST['improvement_id'] ?? 0) ?: null;
             if ($chDesc === '') {
-                $error = 'شرح تغییر را وارد کنید.';
+                flash_set('error', 'شرح تغییر را وارد کنید.');
             } else {
                 $ov = $proc['Version'];
                 $apType = 'team';
@@ -109,11 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $st = $db->prepare('UPDATE Processes SET Version = ?, UpdatedAt = NOW() WHERE ID = ?');
                     $st->bind_param('si', $nv, $procId);
                     $st->execute(); $st->close();
-                    $notice = 'تغییر ثبت و نسخه فرآیند به ' . $nv . ' به‌روزرسانی شد.';
+                    flash_set('ok', 'تغییر ثبت و نسخه فرآیند به ' . $nv . ' به‌روزرسانی شد.');
                 } else {
-                    $notice = 'تغییر ثبت شد.';
+                    flash_set('ok', 'تغییر ثبت شد.');
                 }
-                $tabBack = 'changes';
+                $redirectUrl = 'file.php?id=' . $procId . '&tab=changes';
             }
         } elseif ($action === 'set_status' && $tabBack === 'info') {
             $newStatus = (string)($_POST['status'] ?? '');
@@ -121,18 +132,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st = $db->prepare('UPDATE Processes SET Status = ?, UpdatedAt = NOW() WHERE ID = ?');
                 $st->bind_param('si', $newStatus, $procId);
                 $st->execute(); $st->close();
-                $proc['Status'] = $newStatus;
-                $notice = 'وضعیت فرآیند تغییر کرد.';
+                flash_set('ok', 'وضعیت فرآیند تغییر کرد.');
             }
         }
     }
-    if ($action === 'add_change' || $action === 'upload' || $action === 'delete_doc') {
-        // refresh process (version may change)
-        $st = $db->prepare('SELECT Version, Status, UpdatedAt FROM Processes WHERE ID = ?');
-        $st->bind_param('i', $procId); $st->execute();
-        $fresh = $st->get_result()->fetch_assoc(); $st->close();
-        if ($fresh) $proc = array_merge($proc, $fresh);
-    }
+    header('Location: ' . $redirectUrl);
+    exit;
 }
 
 $tab = (string)($_GET['tab'] ?? $_POST['tab'] ?? 'info');

@@ -11,17 +11,32 @@ $tid = (int)$id['id'];
 
 $notice = '';
 $error = '';
+$statusFilter = (string)($_GET['status'] ?? '');
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $redirectUrl = 'improvements.php' . ($statusFilter ? '?status=' . urlencode($statusFilter) : '');
     if (!csrf_check($_POST['csrf'] ?? null)) {
-        $error = 'اعتبار صفحه منقضی شده است.';
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+        header('Location: ' . $redirectUrl);
+        exit;
     } else {
         $impId = (int)($_POST['imp_id'] ?? 0);
         $action = (string)($_POST['action'] ?? '');
 
         if ($action === 'hermes_queue') {
             hermes_dispatch_async_eval(0);
-            $notice = 'صف ارزیابی هوشمند هرمس در پس‌زمینه فعال شد. موارد معلق به زودی ارزیابی خواهند شد.';
+            flash_set('ok', 'صف ارزیابی هوشمند هرمس در پس‌زمینه فعال شد. موارد معلق به زودی ارزیابی خواهند شد.');
+            header('Location: ' . $redirectUrl);
+            exit;
         } else {
             // آیا این تیم مسئول فرآیند است؟
             $st = $db->prepare(
@@ -32,40 +47,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $imp = $st->get_result()->fetch_assoc(); $st->close();
 
             if (!$imp) {
-                $error = 'بهبود مورد نظر یافت نشد.';
+                flash_set('error', 'بهبود مورد نظر یافت نشد.');
+                header('Location: ' . $redirectUrl);
+                exit;
             } elseif ((int)$imp['ResponsibleTeamID'] !== $tid) {
-                $error = 'فقط تیم مسئول فرآیند می‌تواند درباره بهبود آن تصمیم بگیرد.';
+                flash_set('error', 'فقط تیم مسئول فرآیند می‌تواند درباره بهبود آن تصمیم بگیرد.');
+                header('Location: ' . $redirectUrl);
+                exit;
             } elseif ($action === 'set_status' && in_array($_POST['status'] ?? '', ['pending','accepted','rejected','implemented'], true)) {
                 $newSt = (string)$_POST['status'];
                 $st = $db->prepare('UPDATE Improvements SET Status = ? WHERE ID = ?');
                 $st->bind_param('si', $newSt, $impId); $st->execute(); $st->close();
-                $notice = 'وضعیت بهبود به «' . status_label($newSt) . '» تغییر کرد.';
+                flash_set('ok', 'وضعیت بهبود به «' . status_label($newSt) . '» تغییر کرد.');
+                header('Location: ' . $redirectUrl);
+                exit;
             } elseif ($action === 'hermes_eval') {
                 @set_time_limit(90);
                 $res = hermes_evaluate_improvement($db, $impId);
                 if ($res['success']) {
                     $vText = ($res['verdict'] === 'yes') ? 'تأیید داور هرمس (YES)' : 'عدم تأیید داور هرمس (NO)';
-                    $notice = 'ارزیابی هرمس با موفقیت ثبت شد: رأی داور «' . $vText . '» است.';
+                    flash_set('ok', 'ارزیابی هرمس با موفقیت ثبت شد: رأی داور «' . $vText . '» است.');
                 } else {
-                    $error = 'خطا در ارزیابی هرمس: ' . ($res['error'] ?? 'پاسخی از سرویس دریافت نشد.');
+                    flash_set('error', 'خطا در ارزیابی هرمس: ' . ($res['error'] ?? 'پاسخی از سرویس دریافت نشد.'));
                 }
+                header('Location: ' . $redirectUrl);
+                exit;
             } elseif ($action === 'reply') {
                 $body = trim((string)($_POST['body'] ?? ''));
                 if (mb_strlen($body) < 2) {
-                    $error = 'متن پاسخ را وارد کنید.';
+                    flash_set('error', 'متن پاسخ را وارد کنید.');
                 } else {
                     $refType = 'improvement'; $senderType = 'team';
                     $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement',?,?,?,?)");
                     $st->bind_param('isis', $impId, $senderType, $tid, $body);
                     $st->execute(); $st->close();
-                    $notice = 'پاسخ ثبت شد.';
+                    flash_set('ok', 'پاسخ ثبت شد.');
                 }
+                header('Location: ' . $redirectUrl);
+                exit;
             }
         }
     }
 }
 
-$statusFilter = (string)($_GET['status'] ?? '');
 $sql = "SELECT i.*, p.Name AS ProcName, p.ID AS Pid, p.ResponsibleTeamID, cat.Title AS CatTitle,
                u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS ReqTeamName,
                (SELECT COUNT(*) FROM Responses r WHERE r.RefType='improvement' AND r.RefID=i.ID) AS Replies,

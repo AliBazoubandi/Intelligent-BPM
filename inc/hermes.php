@@ -111,6 +111,22 @@ function hermes_find_php_binary(): string
  */
 function hermes_dispatch_async_eval(int $improvementId = 0): bool
 {
+    if ($improvementId > 0) {
+        try {
+            $db = app_db();
+            $st = $db->prepare("SELECT AiVerdict FROM Improvements WHERE ID = ?");
+            $st->bind_param('i', $improvementId);
+            $st->execute();
+            $cur = $st->get_result()->fetch_assoc();
+            $st->close();
+            if ($cur && in_array($cur['AiVerdict'], ['yes', 'no'], true)) {
+                return true; // قبلاً ارزیابی شده؛ از ارسال تکراری جلوگیری شد
+            }
+        } catch (Throwable $e) {
+            // در صورت بروز خطا در بررسی، روند عادی ادامه می‌یابد
+        }
+    }
+
     $phpBin = hermes_find_php_binary();
     $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
     if (!$workerPath || !file_exists($workerPath)) {

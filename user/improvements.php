@@ -12,12 +12,25 @@ $canSubmit = true; // All users currently have permission to suggest optimizatio
 $notice = '';
 $error = '';
 
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 /* ثبت بهبود جدید */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canSubmit) {
-        $error = 'شما اجازه ثبت درخواست بهبود ندارید.';
+        flash_set('error', 'شما اجازه ثبت درخواست بهبود ندارید.');
+        header('Location: improvements.php');
+        exit;
     } elseif (!csrf_check($_POST['csrf'] ?? null)) {
-        $error = 'اعتبار صفحه منقضی شده؛ دوباره تلاش کنید.';
+        flash_set('error', 'اعتبار صفحه منقضی شده؛ دوباره تلاش کنید.');
+        header('Location: improvements.php');
+        exit;
     } else {
         $procId = (int)($_POST['process_id'] ?? 0);
         $title = trim((string)($_POST['title'] ?? ''));
@@ -29,12 +42,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $check->close();
 
         if ($title === '' || mb_strlen($title) < 3) {
-            $error = 'عنوان بهبود را کامل‌تر بنویسید (حداقل ۳ نویسه).';
+            flash_set('error', 'عنوان بهبود را کامل‌تر بنویسید (حداقل ۳ نویسه).');
+            header('Location: improvements.php' . ($procId > 0 ? '?process=' . $procId : ''));
+            exit;
         } elseif (!$found) {
-            $error = 'فرآیند مورد نظر انتخاب نشده یا معتبر نیست.';
+            flash_set('error', 'فرآیند مورد نظر انتخاب نشده یا معتبر نیست.');
+            header('Location: improvements.php');
+            exit;
         } else {
             $uid = (int)$id['id'];
             $type = 'user';
+
+            // جلوگیری از ثبت تکراری در اثر رفرش یا کلیک چندباره (Deduplication Guard)
+            $dupCheck = $db->prepare(
+                "SELECT ID FROM Improvements 
+                 WHERE ProcessID = ? AND requester_type = ? AND requester_id = ? AND Title = ? 
+                   AND CreatedAt >= (NOW() - INTERVAL 5 MINUTE) 
+                 ORDER BY ID DESC LIMIT 1"
+            );
+            $dupCheck->bind_param('isis', $procId, $type, $uid, $title);
+            $dupCheck->execute();
+            $dupRow = $dupCheck->get_result()->fetch_assoc();
+            $dupCheck->close();
+
+            if ($dupRow) {
+                flash_set('ok', 'این پیشنهاد بهبود قبلاً با شماره پیگیری #' . $dupRow['ID'] . ' ثبت شده و در صف ارزیابی هرمس یا بررسی تیم فرآیند قرار دارد.');
+                header('Location: improvements.php');
+                exit;
+            }
+
             $st = $db->prepare(
                 "INSERT INTO Improvements (ProcessID, requester_type, requester_id, Title, Description)
                  VALUES (?,?,?,?,?)"
@@ -46,7 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // ثبت درخواست بهبود و ارسال غیراسنکرون (Async) به صف داور هوشمند هرمس
             hermes_dispatch_async_eval($newImpId);
-            $notice = 'درخواست بهبود شما با شماره پیگیری #' . $newImpId . ' با موفقیت ثبت شد و در صف ارزیابی داور هوشمند (هرمس) و بررسی تیم فرآیند قرار گرفت.';
+            flash_set('ok', 'درخواست بهبود شما با شماره پیگیری #' . $newImpId . ' با موفقیت ثبت شد و در صف ارزیابی داور هوشمند (هرمس) و بررسی تیم فرآیند قرار گرفت.');
+            header('Location: improvements.php');
+            exit;
         }
     }
 }
@@ -84,7 +122,7 @@ $preselect = (int)($_GET['process'] ?? $_POST['process_id'] ?? 0);
 <?php if ($canSubmit): ?>
 <div class="card">
     <h2>💡 ثبت درخواست بهبود جدید</h2>
-    <form method="post">
+    <form method="post" onsubmit="const b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerText='در حال ثبت...';}">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 16px">
             <label class="field">

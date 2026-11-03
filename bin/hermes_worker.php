@@ -151,13 +151,23 @@ if ($arg1 === '--task' && is_numeric($arg2)) {
 } elseif (is_numeric($arg1) && (int)$arg1 > 0) {
     // ارزیابی یک پیشنهاد بهبود خاص
     $impId = (int)$arg1;
-    echo "-> Evaluating Improvement ID: {$impId} ...\n";
-    $result = hermes_evaluate_improvement($db, $impId);
-    if ($result['success']) {
-        echo "-> SUCCESS: Verdict is [{$result['verdict']}]\n";
-        echo "   Summary: {$result['summary']}\n";
+    $stCheck = $db->prepare("SELECT AiVerdict FROM Improvements WHERE ID = ?");
+    $stCheck->bind_param('i', $impId);
+    $stCheck->execute();
+    $curRow = $stCheck->get_result()->fetch_assoc();
+    $stCheck->close();
+
+    if ($curRow && in_array($curRow['AiVerdict'], ['yes', 'no'], true)) {
+        echo "-> SKIP: Improvement ID {$impId} is already evaluated (Verdict: {$curRow['AiVerdict']}).\n";
     } else {
-        echo "-> FAILED: " . ($result['error'] ?? 'Unknown error') . "\n";
+        echo "-> Evaluating Improvement ID: {$impId} ...\n";
+        $result = hermes_evaluate_improvement($db, $impId);
+        if ($result['success']) {
+            echo "-> SUCCESS: Verdict is [{$result['verdict']}]\n";
+            echo "   Summary: {$result['summary']}\n";
+        } else {
+            echo "-> FAILED: " . ($result['error'] ?? 'Unknown error') . "\n";
+        }
     }
 } else {
     // پردازش صف همه‌جانبه (Queue Mode): ارزیابی‌ها و بازنگری‌ها

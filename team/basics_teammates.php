@@ -10,8 +10,19 @@ $tid = (int)$id['id'];
 
 $error = '';
 $notice = '';
+$error = '';
 $needsConfirm = false;
 $confirmCode = '';
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_check($_POST['csrf'] ?? null)) $error = 'اعتبار صفحه منقضی شده است.';
     else {
@@ -30,7 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $st = $db->prepare('UPDATE Personnel SET TeamID = ? WHERE ID = ?');
                 $st->bind_param('ii', $tid, $p['ID']); $st->execute(); $st->close();
-                $notice = trim($p['Name'] . ' ' . $p['Family']) . ' به تیم افزوده شد.';
+                flash_set('ok', trim($p['Name'] . ' ' . $p['Family']) . ' به تیم افزوده شد.');
+                header('Location: basics_teammates.php');
+                exit;
             }
         } elseif ($action === 'remove') {
             $pid = (int)($_POST['personnel_id'] ?? 0);
@@ -38,7 +51,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $st->bind_param('ii', $pid, $tid); $st->execute(); $st->close();
             $st = $db->prepare('UPDATE ProcessTeams SET LeaderPersonnelID = NULL WHERE ID = ? AND LeaderPersonnelID = ?');
             $st->bind_param('ii', $tid, $pid); $st->execute(); $st->close();
-            $notice = 'عضو از تیم حذف شد.';
+            flash_set('ok', 'عضو از تیم حذف شد.');
+            header('Location: basics_teammates.php');
+            exit;
         }
     }
 }

@@ -9,9 +9,20 @@ $db = app_db();
 
 $error = '';
 $notice = '';
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_check($_POST['csrf'] ?? null)) $error = 'اعتبار صفحه منقضی شده است.';
-    else {
+    if (!csrf_check($_POST['csrf'] ?? null)) {
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+    } else {
         $action = (string)($_POST['action'] ?? 'create');
         if ($action === 'sync') {
             // همگام‌سازی با فولدرهای روی دیسک
@@ -37,15 +48,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $db->query('UPDATE ProcessCategories SET Active=0');
             }
-            $notice = 'فولدرهای روی دیسک با جدول دسته‌ها همگام شد.';
+            flash_set('ok', 'فولدرهای روی دیسک با جدول دسته‌ها همگام شد.');
         } else {
             $title = trim((string)($_POST['title'] ?? ''));
             $folder = preg_replace('/[\\\\\/:*?"<>|]+/u', '', $title);
             $folder = trim(preg_replace('/\s+/u', ' ', $folder));
             if (mb_strlen($folder) < 2) {
-                $error = 'نام دسته معتبر نیست.';
+                flash_set('error', 'نام دسته معتبر نیست.');
             } elseif (is_dir(PROCESSES_ROOT . DIRECTORY_SEPARATOR . $folder)) {
-                $error = 'پوشه‌ای با این نام از قبل وجود دارد.';
+                flash_set('error', 'پوشه‌ای با این نام از قبل وجود دارد.');
             } else {
                 $abs = PROCESSES_ROOT . DIRECTORY_SEPARATOR . $folder;
                 mkdir($abs, 0775, true);
@@ -59,10 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 $st->bind_param('sssi', $title, $folder, $rel, $order);
                 $st->execute(); $st->close();
-                $notice = 'دسته «' . $title . '» و پوشه آن ساخته شد.';
+                flash_set('ok', 'دسته «' . $title . '» و پوشه آن ساخته شد.');
             }
         }
     }
+    header('Location: basics_categories.php');
+    exit;
 }
 $res = $db->query(
     'SELECT c.*, (SELECT COUNT(*) FROM Processes p WHERE p.CategoryID = c.ID) AS Procs

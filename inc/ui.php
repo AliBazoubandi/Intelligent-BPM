@@ -55,3 +55,38 @@ function active_categories(mysqli $db): array
     while ($r = $res->fetch_assoc()) $out[] = $r;
     return $out;
 }
+
+/** تنظیم پیام فلش در سشن */
+function flash_set(string $type, string $message): void
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        if (function_exists('auth_session_start')) {
+            auth_session_start();
+        } else {
+            @session_start();
+        }
+    }
+    $_SESSION['flash_message'] = [
+        'type' => $type, // 'ok' or 'error'
+        'message' => $message,
+    ];
+}
+
+/** دریافت و پاکسازی پیام فلش از سشن */
+function flash_get(): ?array
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        if (function_exists('auth_session_start')) {
+            auth_session_start();
+        } else {
+            @session_start();
+        }
+    }
+    if (isset($_SESSION['flash_message'])) {
+        $flash = $_SESSION['flash_message'];
+        unset($_SESSION['flash_message']);
+        return $flash;
+    }
+    return null;
+}
+

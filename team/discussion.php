@@ -13,12 +13,25 @@ $tid = (int)$id['id'];
 $notice = '';
 $error = '';
 
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
+
 /* پاسخ جدید یا ارزیابی با هرمس */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $impId = (int)($_POST['imp_id'] ?? 0);
+    $redirectUrl = 'discussion.php' . ($impId > 0 ? '?imp=' . $impId : '');
+
     if (!csrf_check($_POST['csrf'] ?? null)) {
-        $error = 'اعتبار صفحه منقضی شده است.';
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+        header('Location: ' . $redirectUrl);
+        exit;
     } else {
-        $impId = (int)($_POST['imp_id'] ?? 0);
         $action = (string)($_POST['action'] ?? 'reply');
 
         // بررسی اینکه آیا این تیم مسئول فرآیند است
@@ -29,28 +42,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st->close();
 
         if (!$permRow) {
-            $error = 'بهبود مورد نظر یافت نشد.';
+            flash_set('error', 'بهبود مورد نظر یافت نشد.');
+            header('Location: discussion.php');
+            exit;
         } elseif ((int)$permRow['ResponsibleTeamID'] !== $tid) {
-            $error = 'فقط تیم مسئول فرآیند اجازه پاسخگویی یا ارزیابی هرمس را دارد.';
+            flash_set('error', 'فقط تیم مسئول فرآیند اجازه پاسخگویی یا ارزیابی هرمس را دارد.');
+            header('Location: ' . $redirectUrl);
+            exit;
         } elseif ($action === 'hermes_eval') {
             @set_time_limit(90);
             $res = hermes_evaluate_improvement($db, $impId);
             if ($res['success']) {
-                $notice = 'ارزیابی هرمس با موفقیت به‌روزرسانی شد: رأی داور «' . ($res['verdict'] === 'yes' ? 'تأیید (YES)' : 'عدم تأیید (NO)') . '» است.';
+                flash_set('ok', 'ارزیابی هرمس با موفقیت به‌روزرسانی شد: رأی داور «' . ($res['verdict'] === 'yes' ? 'تأیید (YES)' : 'عدم تأیید (NO)') . '» است.');
             } else {
-                $error = 'خطا در ارزیابی هرمس: ' . ($res['error'] ?? 'خطا');
+                flash_set('error', 'خطا در ارزیابی هرمس: ' . ($res['error'] ?? 'خطا'));
             }
+            header('Location: ' . $redirectUrl);
+            exit;
         } else {
             $body = trim((string)($_POST['body'] ?? ''));
-            if (mb_strlen($body) < 2) $error = 'متن پیام را وارد کنید.';
-            else {
+            if (mb_strlen($body) < 2) {
+                flash_set('error', 'متن پیام را وارد کنید.');
+            } else {
                 $senderType = 'team';
                 $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement',?,?,?,?)");
                 $st->bind_param('isis', $impId, $senderType, $tid, $body);
                 $st->execute(); $st->close();
-                header('Location: discussion.php?imp=' . $impId);
-                exit;
+                flash_set('ok', 'پاسخ شما با موفقیت ثبت شد.');
             }
+            header('Location: ' . $redirectUrl);
+            exit;
         }
     }
 }
