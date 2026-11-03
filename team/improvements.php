@@ -68,7 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $statusFilter = (string)($_GET['status'] ?? '');
 $sql = "SELECT i.*, p.Name AS ProcName, p.ID AS Pid, p.ResponsibleTeamID, cat.Title AS CatTitle,
                u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS ReqTeamName,
-               (SELECT COUNT(*) FROM Responses r WHERE r.RefType='improvement' AND r.RefID=i.ID) AS Replies
+               (SELECT COUNT(*) FROM Responses r WHERE r.RefType='improvement' AND r.RefID=i.ID) AS Replies,
+               (SELECT ht.Status FROM HermesTasks ht WHERE ht.TaskType='revision' AND ht.RefID=i.ID ORDER BY ht.ID DESC LIMIT 1) AS RevisionTaskStatus
         FROM Improvements i
         JOIN Processes p ON p.ID = i.ProcessID
         JOIN ProcessCategories cat ON cat.ID = p.CategoryID
@@ -171,13 +172,18 @@ if ($stCount) {
                                     <span><?= (!empty($m['AiVerdict']) && $m['AiVerdict'] !== 'pending') ? 'ارزیابی مجدد' : 'ارزیابی با هرمس' ?></span>
                                 </button>
                             </form>
-                            <?php if ($m['Status'] !== 'implemented'): ?>
+                            <?php if ($m['Status'] === 'implemented'): ?>
+                                <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:3px 8px;border-radius:10px">اجرا و مستند شد</span>
+                            <?php elseif (in_array($m['RevisionTaskStatus'] ?? '', ['queued', 'running'], true)): ?>
+                                <a class="btn btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;display:inline-flex;align-items:center;gap:4px">
+                                    <?= app_icon('refresh', 'ai-spin', 12) ?>
+                                    <span>در حال بازنویسی...</span>
+                                </a>
+                            <?php else: ?>
                                 <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
                                     <?= app_icon('bot', '', 12) ?>
                                     <span>بازنویسی سند</span>
                                 </a>
-                            <?php else: ?>
-                                <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:3px 8px;border-radius:10px">اجرا و مستند شد</span>
                             <?php endif; ?>
                         </div>
                         <form method="post" class="inline-form">

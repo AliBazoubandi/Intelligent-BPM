@@ -139,6 +139,52 @@ function hermes_dispatch_async_eval(int $improvementId = 0): bool
 }
 
 /**
+ * ارسال غیراسنکرون (Async) عملیات بازنگری، بایگانی و تدوین سند فرآیند به ورکر پس‌زمینه هرمس
+ * بلافاصله تسک را در دیتابیس ثبت کرده و کنترل را در چند میلی‌ثانیه به کاربر بازمی‌گرداند.
+ *
+ * @param mysqli $db
+ * @param int $improvementId شناسه پیشنهاد بهبود
+ * @param int $teamId شناسه تیم انجام‌دهنده
+ * @param array|null $revisionData اطلاعات بازنگری (اختیاری)
+ * @return int شناسه تسک ایجادشده در جدول HermesTasks (یا 0 در صورت خطا)
+ */
+function hermes_dispatch_async_revision(mysqli $db, int $improvementId, int $teamId, ?array $revisionData = null): int
+{
+    $payload = ($revisionData !== null) ? json_encode($revisionData, JSON_UNESCAPED_UNICODE) : null;
+    $st = $db->prepare("INSERT INTO HermesTasks (TaskType, RefID, TeamID, Status, Payload) VALUES ('revision', ?, ?, 'queued', ?)");
+    $st->bind_param('iis', $improvementId, $teamId, $payload);
+    $st->execute();
+    $taskId = (int)$db->insert_id;
+    $st->close();
+
+    if ($taskId <= 0) {
+        return 0;
+    }
+
+    $phpBin = hermes_find_php_binary();
+    $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
+    if (!$workerPath || !file_exists($workerPath)) {
+        return $taskId;
+    }
+
+    $arg = '--task ' . $taskId;
+    $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
+
+    if (stripos(PHP_OS, 'WIN') === 0) {
+        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, $arg, $logFile);
+        $handle = @popen($cmd, 'r');
+        if ($handle) {
+            pclose($handle);
+        }
+    } else {
+        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, $arg, $logFile);
+        @exec($cmd);
+    }
+
+    return $taskId;
+}
+
+/**
  * ارزیابی تخصصی یک پیشنهاد بهبود توسط هرمس
  * بررسی پارادوکس‌ها و عوارض جانبی بر سایر فرآیندهای سازمان
  *

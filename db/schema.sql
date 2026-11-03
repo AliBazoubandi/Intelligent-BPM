@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS Notifications (
   ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
   Title VARCHAR(200) NOT NULL,
   Body TEXT NULL,
+  Link VARCHAR(255) NULL COMMENT 'لینک مستقیم به فرآیند، مستند یا گفتگو',
   FromType ENUM('user','team') NOT NULL DEFAULT 'team',
   FromID INT UNSIGNED NOT NULL COMMENT 'فرستنده',
   ProcessID INT UNSIGNED NULL COMMENT 'فرآیند مرتبط',
@@ -149,11 +150,29 @@ CREATE TABLE IF NOT EXISTS Notifications (
   TargetTeamID INT UNSIGNED NULL COMMENT 'مخاطب: تیم',
   TargetPersonnelID INT UNSIGNED NULL COMMENT 'مخاطب: پرسنل مشخص',
   Priority ENUM('normal','high') NOT NULL DEFAULT 'normal',
+  IsRead TINYINT(1) NOT NULL DEFAULT 0,
   SentAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (ID),
   KEY idx_notification_target (TargetCompanyID, TargetTeamID, TargetPersonnelID),
   KEY idx_notification_process (ProcessID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لیست اطلاع‌رسانی‌ها';
+
+-- 9) صف کارهای پس‌زمینه هرمس (Hermes Background Tasks)
+CREATE TABLE IF NOT EXISTS HermesTasks (
+  ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  TaskType VARCHAR(50) NOT NULL DEFAULT 'revision',
+  RefID INT UNSIGNED NOT NULL,
+  TeamID INT UNSIGNED NULL,
+  Status ENUM('queued','running','completed','failed') NOT NULL DEFAULT 'queued',
+  Payload MEDIUMTEXT NULL,
+  Result MEDIUMTEXT NULL,
+  ErrorMessage TEXT NULL,
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (ID),
+  KEY idx_task_type_ref (TaskType, RefID),
+  KEY idx_task_status (Status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='صف کارهای پس‌زمینه هرمس';
 
 -- جدول کمکی: مجریان فرآیندها
 CREATE TABLE IF NOT EXISTS ProcessExecutors (

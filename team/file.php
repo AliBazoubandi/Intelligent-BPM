@@ -274,7 +274,8 @@ $csrf = csrf_token();
     <h2>بهبودهای این فرآیند</h2>
     <?php
     $st = $db->prepare(
-        "SELECT i.*, u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS ReqTeamName
+        "SELECT i.*, u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS ReqTeamName,
+                (SELECT ht.Status FROM HermesTasks ht WHERE ht.TaskType='revision' AND ht.RefID=i.ID ORDER BY ht.ID DESC LIMIT 1) AS RevisionTaskStatus
          FROM Improvements i
          LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type='user'
          LEFT JOIN ProcessTeams pt ON pt.ID = i.requester_id AND i.requester_type='team'
@@ -301,10 +302,18 @@ $csrf = csrf_token();
                     <td>
                         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                             <a class="btn btn-ghost btn-xs" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px"><?= app_icon('discussion', '', 13) ?><span>گفتگو و تحلیل هرمس</span></a>
-                            <?php if ($isOwnerTeam && $m['Status'] !== 'implemented'): ?>
-                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px"><?= app_icon('bot', '', 12) ?><span>بازنویسی سند</span></a>
-                            <?php elseif ($m['Status'] === 'implemented'): ?>
+                            <?php if ($m['Status'] === 'implemented'): ?>
                                 <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 7px;border-radius:10px">اعمال‌شده</span>
+                            <?php elseif (in_array($m['RevisionTaskStatus'] ?? '', ['queued', 'running'], true)): ?>
+                                <a class="btn btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;display:inline-flex;align-items:center;gap:4px">
+                                    <?= app_icon('refresh', 'ai-spin', 12) ?>
+                                    <span>در حال بازنویسی...</span>
+                                </a>
+                            <?php elseif ($isOwnerTeam): ?>
+                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px">
+                                    <?= app_icon('bot', '', 12) ?>
+                                    <span>بازنویسی سند</span>
+                                </a>
                             <?php endif; ?>
                         </div>
                     </td>

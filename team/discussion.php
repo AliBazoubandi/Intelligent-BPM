@@ -79,6 +79,14 @@ if ($impId > 0) {
 
     $isOwnerTeam = ((int)$imp['ResponsibleTeamID'] === $tid);
 
+    // بررسی اینکه آیا تسک بازنگری در پس‌زمینه در حال اجرا است
+    $stTask = $db->prepare("SELECT Status FROM HermesTasks WHERE TaskType = 'revision' AND RefID = ? ORDER BY ID DESC LIMIT 1");
+    $stTask->bind_param('i', $impId);
+    $stTask->execute();
+    $taskRow = $stTask->get_result()->fetch_assoc();
+    $stTask->close();
+    $isRevising = ($taskRow && in_array($taskRow['Status'], ['queued', 'running'], true));
+
     $st = $db->prepare(
         "SELECT r.*, u.Name, u.Family, t.TeamName
          FROM Responses r
@@ -100,7 +108,12 @@ if ($impId > 0) {
         <div class="page-head" style="margin-bottom:6px">
             <h2 style="margin:0"><?= e($imp['Title']) ?> <span class="badge badge-<?= e($imp['Status']) ?>"><?= status_label($imp['Status']) ?></span></h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <?php if ($isOwnerTeam && $imp['Status'] !== 'implemented'): ?>
+                <?php if ($isRevising): ?>
+                    <a class="btn btn-sm" href="revision.php?imp=<?= $impId ?>" style="background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;display:inline-flex;align-items:center;gap:6px">
+                        <?= app_icon('refresh', 'ai-spin', 14) ?>
+                        <span>هرمس در حال بازنویسی در پس‌زمینه... (مشاهده وضعیت)</span>
+                    </a>
+                <?php elseif ($isOwnerTeam && $imp['Status'] !== 'implemented'): ?>
                     <a class="btn btn-brand btn-sm" href="revision.php?imp=<?= $impId ?>" style="display:inline-flex;align-items:center;gap:6px">
                         <?= app_icon('bot', '', 15) ?>
                         <span>اعمال بهبود و بازنویسی سند با هرمس</span>

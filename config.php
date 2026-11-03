@@ -74,12 +74,12 @@ define('HERMES_TIMEOUT', (int)env('HERMES_TIMEOUT', 120));
 define('PHP_BIN', (string)env('PHP_BIN', ''));
 
 if (!defined('BASE_URL')) {
-    $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
-    $dir = trim(str_replace('\\', '/', dirname($scriptName)), '/');
-    $base = trim(preg_replace('#(^|/)(user|team|inc)$#', '', $dir), '/');
-    if (PHP_SAPI === 'cli' && empty($_SERVER['SCRIPT_NAME'])) {
-        define('BASE_URL', '');
+    if (PHP_SAPI === 'cli') {
+        define('BASE_URL', (string)env('BASE_URL', ''));
     } else {
+        $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+        $dir = trim(str_replace('\\', '/', dirname($scriptName)), '/');
+        $base = trim(preg_replace('#(^|/)(user|team|inc|bin)$#', '', $dir), '/');
         define('BASE_URL', ($base === '' || $base === '.') ? '' : '/' . $base);
     }
 }
