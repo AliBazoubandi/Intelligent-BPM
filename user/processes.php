@@ -4,6 +4,7 @@
  */
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/ui.php';
+require_once __DIR__ . '/../inc/files.php';
 $id = require_area('user');
 $db = app_db();
 
@@ -35,13 +36,13 @@ if ($procId > 0) {
     }
 
     /* فایل‌های واقعی فرآیند در دایرکتوری processes */
-    $relDir = trim((string)$proc['FilePath'], '/');
-    if ($relDir === '') $relDir = $proc['FolderName'] . '/' . $proc['Name'];
-    $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir);
+    $relDir = fm_normalize_rel((string)$proc['FilePath']);
+    if ($relDir === '') $relDir = fm_normalize_rel($proc['FolderName'] . '/' . $proc['Name']);
+    $absDir = fm_safe_abs($relDir);
     $files = [];
-    if (is_dir($absDir)) {
+    if ($absDir !== null && is_dir($absDir)) {
         foreach (scandir($absDir) as $f) {
-            if ($f === '.' || $f === '..' || $f === '.htaccess') continue;
+            if ($f === '.' || $f === '..' || $f === '.htaccess' || str_starts_with($f, '.')) continue;
             $fp = $absDir . DIRECTORY_SEPARATOR . $f;
             if (is_file($fp)) $files[] = ['name' => $f, 'size' => (int)filesize($fp), 'time' => date('Y-m-d H:i', (int)filemtime($fp))];
         }
@@ -82,7 +83,7 @@ if ($procId > 0) {
         <?php else: ?>
             <ul class="file-list">
                 <?php foreach ($files as $f):
-                    $url = BASE_URL . '/processes/' . implode('/', array_map('rawurlencode', explode('/', $relDir . '/' . $f['name']))); ?>
+                    $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']); ?>
                     <li>
                         <span>📄</span>
                         <a href="<?= e($url) ?>" target="_blank" rel="noopener"><?= e($f['name']) ?></a>

@@ -6,7 +6,7 @@
  *  - همگام‌سازی جدول ProcessCategories با فولدرهای موجود
  *  - درج داده نمونه (شرکت / تیم فرآیند / پرسنل) — فقط در اولین نصب
  *
- * اجرا: php install.php   یا   http://localhost/process/install.php
+ * اجرا: php install.php   یا   http://localhost:8000/install.php
  * بعد از نصب این فایل را حذف یا محدود کنید.
  */
 require __DIR__ . '/config.php';
@@ -17,8 +17,11 @@ $out = function (string $m) use ($isCli) {
 };
 
 $lockFile = __DIR__ . '/.installed';
-if (file_exists($lockFile) && !$isCli && empty($_GET['force'])) {
-    die('<p style="font-family:Tahoma;color:#b00">سامانه از قبل نصب شده است. برای اجرای مجدد، فایل .installed را حذف کرده یا پارامتر <code>?force=1</code> را ارسال نمایید.</p>');
+if (file_exists($lockFile)) {
+    $canForce = ($isCli && in_array('--force', $argv ?? [], true));
+    if (!$canForce) {
+        die('<p style="font-family:Tahoma;color:#b00">سامانه از قبل نصب شده است. برای اجرای مجدد، فایل <code>.installed</code> را در سرور حذف کرده یا از خط فرمان با سوئیچ <code>--force</code> اجرا نمایید.</p>');
+    }
 }
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -194,10 +197,13 @@ function seed_demo_processes(mysqli $conn, callable $out): void
 
     // دو بهبود از سوی P-1001 (شناسه ۱)
     $st = $conn->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
-    $pidLeave = $pidAccess = 0;
-    $st->bind_param('s', $n1); $n1 = 'درخواست مرخصی'; $st->execute();
+    $procNameLeave = 'درخواست مرخصی';
+    $st->bind_param('s', $procNameLeave);
+    $st->execute();
     $pidLeave = (int)($st->get_result()->fetch_assoc()['ID'] ?? 0);
-    $st->bind_param('s', $n2); $n2 = 'صدور دسترسی شبکه'; $st->execute();
+
+    $procNameLeave = 'صدور دسترسی شبکه';
+    $st->execute();
     $pidAccess = (int)($st->get_result()->fetch_assoc()['ID'] ?? 0);
     $st->close();
 

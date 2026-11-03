@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($identity) {
             log_login('team', $identity['id'], $code, true);
             session_regenerate_id(true);
+            $_SESSION['op_team'] = $identity;
             $_SESSION['op_identity'] = $identity;
             header('Location: home.php');
             exit;

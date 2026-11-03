@@ -36,6 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid = (int)($_POST['personnel_id'] ?? 0);
             $st = $db->prepare('UPDATE Personnel SET TeamID = NULL WHERE ID = ? AND TeamID = ?');
             $st->bind_param('ii', $pid, $tid); $st->execute(); $st->close();
+            $st = $db->prepare('UPDATE ProcessTeams SET LeaderPersonnelID = NULL WHERE ID = ? AND LeaderPersonnelID = ?');
+            $st->bind_param('ii', $tid, $pid); $st->execute(); $st->close();
             $notice = 'عضو از تیم حذف شد.';
         }
     }

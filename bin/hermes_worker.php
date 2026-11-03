@@ -22,12 +22,17 @@ while (@ob_end_flush());
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../inc/hermes.php';
 
-$db = app_db();
-
 $arg = $argv[1] ?? '--queue';
 $timeStart = microtime(true);
 
 echo "[" . date('Y-m-d H:i:s') . "] Hermes Worker started with argument: {$arg}\n";
+
+try {
+    $db = app_db();
+} catch (Throwable $e) {
+    echo "-> FATAL: Database connection failed: " . $e->getMessage() . "\n";
+    exit(1);
+}
 
 if (is_numeric($arg) && (int)$arg > 0) {
     // ارزیابی یک بهبود خاص

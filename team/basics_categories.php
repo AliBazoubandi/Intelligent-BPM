@@ -17,10 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // همگام‌سازی با فولدرهای روی دیسک
             $root = PROCESSES_ROOT;
             $folders = array_values(array_filter(scandir($root), fn($f) => $f !== '.' && $f !== '..' && is_dir($root . DIRECTORY_SEPARATOR . $f)));
-            $order = (int)$db->query('SELECT COALESCE(MAX(SortOrder),0) m FROM ProcessCategories')->fetch_assoc()['m'];
+            sort($folders, SORT_STRING);
+            $order = 0;
             $st = $db->prepare(
-                "INSERT INTO ProcessCategories (Title, FolderName, FolderPath, SortOrder) VALUES (?,?,?,?)
-                 ON DUPLICATE KEY UPDATE Title=VALUES(Title), Active=1"
+                "INSERT INTO ProcessCategories (Title, FolderName, FolderPath, SortOrder, Active) VALUES (?,?,?,?,1)
+                 ON DUPLICATE KEY UPDATE Active=1, FolderPath=VALUES(FolderPath)"
             );
             foreach ($folders as $f) {
                 $order++;
@@ -29,6 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st->execute();
             }
             $st->close();
+
+            if ($folders) {
+                $in = implode(',', array_map(fn($f) => "'" . $db->real_escape_string($f) . "'", $folders));
+                $db->query("UPDATE ProcessCategories SET Active=0 WHERE FolderName NOT IN ($in)");
+            } else {
+                $db->query('UPDATE ProcessCategories SET Active=0');
+            }
             $notice = 'فولدرهای روی دیسک با جدول دسته‌ها همگام شد.';
         } else {
             $title = trim((string)($_POST['title'] ?? ''));

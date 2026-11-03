@@ -15,6 +15,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
     $db = app_db();
     $sessionType = $area; // 'user' یا 'team'
     $sessionId = (int)$id['id'];
+    $chatError = '';
     $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
         || (isset($_GET['ajax']) && $_GET['ajax'] === '1')
         || str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json');
@@ -29,6 +30,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                 echo json_encode(['success' => false, 'error' => 'اعتبار صفحه منقضی شده است. صفحه را دوباره بارگذاری کنید.']);
                 exit;
             }
+            $chatError = 'اعتبار صفحه منقضی شده است. لطفاً صفحه را تازه‌سازی فرمایید.';
         } elseif ($action === 'clear') {
             $st = $db->prepare('DELETE FROM AgentChats WHERE SessionType = ? AND SessionID = ?');
             $st->bind_param('si', $sessionType, $sessionId);
@@ -46,7 +48,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                 }
             } else {
                 // دریافت سابقه چند گفتگوی اخیر برای کانتکست مکالمه
-                $st = $db->prepare('SELECT UserQuery, AiResponse FROM AgentChats WHERE SessionType = ? AND SessionID = ? ORDER BY CreatedAt DESC LIMIT 3');
+                $st = $db->prepare('SELECT UserQuery, AiResponse FROM AgentChats WHERE SessionType = ? AND SessionID = ? ORDER BY CreatedAt DESC, ID DESC LIMIT 3');
                 $st->bind_param('si', $sessionType, $sessionId);
                 $st->execute();
                 $histRows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -104,6 +106,8 @@ function handle_and_render_process_chat(string $area, array $id, string $process
         user_header($id, 'ask', 'پرسش از فرآیندها');
     }
     ?>
+
+    <?php if ($chatError): ?><div class="alert alert-error" style="margin-bottom:14px"><?= e($chatError) ?></div><?php endif; ?>
 
     <div class="ai-chat-wrap">
         <!-- بنر راهنمای دستیار هوشمند -->

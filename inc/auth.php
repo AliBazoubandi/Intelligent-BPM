@@ -17,10 +17,16 @@ function auth_session_start(): void
     }
 }
 
-function current_identity(): ?array
+function current_identity(?string $area = null): ?array
 {
     auth_session_start();
-    return $_SESSION['op_identity'] ?? null;
+    if ($area === 'user') {
+        return $_SESSION['op_user'] ?? (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'user' ? $_SESSION['op_identity'] : null);
+    }
+    if ($area === 'team') {
+        return $_SESSION['op_team'] ?? (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'team' ? $_SESSION['op_identity'] : null);
+    }
+    return $_SESSION['op_user'] ?? $_SESSION['op_team'] ?? $_SESSION['op_identity'] ?? null;
 }
 
 function csrf_token(): string
@@ -50,7 +56,7 @@ function area_login_url(string $area): string
  */
 function require_area(string $area): array
 {
-    $id = current_identity();
+    $id = current_identity($area);
     if (!$id || $id['kind'] !== $area) {
         header('Location: ' . area_login_url($area));
         exit;
@@ -61,7 +67,7 @@ function require_area(string $area): array
 /** اگر کاربر/تیم وارد شده بود، مستقیم به خانه همان ناحیه برود */
 function redirect_if_logged_in(string $area): void
 {
-    $id = current_identity();
+    $id = current_identity($area);
     if ($id && $id['kind'] === $area) {
         header('Location: ' . ($area === 'team' ? TEAM_URL : USER_URL) . '/home.php');
         exit;

@@ -13,7 +13,15 @@ require_once __DIR__ . '/icons.php';
 function hermes_is_available(): bool
 {
     if (!defined('HERMES_URL') || !HERMES_URL) return false;
-    $ch = curl_init('http://127.0.0.1:8642/v1/models');
+    $modelsUrl = preg_replace('#/chat/completions/?$#i', '/models', HERMES_URL);
+    if ($modelsUrl === HERMES_URL) {
+        $parts = parse_url(HERMES_URL);
+        $scheme = $parts['scheme'] ?? 'http';
+        $host = $parts['host'] ?? '127.0.0.1';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $modelsUrl = "{$scheme}://{$host}{$port}/v1/models";
+    }
+    $ch = curl_init($modelsUrl);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 2,
@@ -75,7 +83,8 @@ function hermes_find_php_binary(): string
         return PHP_BIN;
     }
     if (PHP_BINARY && file_exists(PHP_BINARY)) {
-        if (!str_ends_with(strtolower(PHP_BINARY), 'php-cgi.exe')) {
+        $base = strtolower(basename(PHP_BINARY));
+        if (str_contains($base, 'php') && !str_ends_with($base, 'php-cgi.exe') && !str_contains($base, 'httpd') && !str_contains($base, 'apache')) {
             return PHP_BINARY;
         }
     }
@@ -110,8 +119,8 @@ function hermes_dispatch_async_eval(int $improvementId = 0): bool
     $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
 
     if (stripos(PHP_OS, 'WIN') === 0) {
-        // ویندوز: استفاده از start /B برای فرآیند پس‌زمینه مستقل و بدون مسدودسازی وب
-        $cmd = sprintf('start /B "" "%s" "%s" %s >> "%s" 2>&1', $phpBin, $workerPath, escapeshellarg($arg), $logFile);
+        // ویندوز: استفاده از cmd /c start /B تا خروجی پردازه فرزند به فایل لاگ ارسال شود
+        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, escapeshellarg($arg), $logFile);
         $handle = @popen($cmd, 'r');
         if ($handle) {
             pclose($handle);
@@ -246,10 +255,11 @@ function hermes_evaluate_improvement(mysqli $db, int $improvementId): array
         $summary = trim((string)($parsed['summary'] ?? ''));
         $analysisText = json_encode($parsed, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     } else {
-        if (preg_match('/\b(YES|تأیید|موافقت)\b/ui', $raw)) {
-            $verdict = 'yes';
-        } elseif (preg_match('/\b(NO|رد|مخالفت)\b/ui', $raw)) {
+        // Fallback: check negative verdicts first to prevent false approvals on phrases like "عدم تأیید" or "مورد تأیید نیست"
+        if (preg_match('/\b(NO|رد|مخالفت|عدم\s+تأیید|عدم\s+تایید|تأیید\s+نمی‌شود|تایید\s+نمی‌شود|مورد\s+تأیید\s+نیست|مورد\s+تایید\s+نیست)\b/ui', $raw)) {
             $verdict = 'no';
+        } elseif (preg_match('/\b(YES|تأیید|تایید|موافقت)\b/ui', $raw)) {
+            $verdict = 'yes';
         }
         $analysisText = $raw;
         $summary = mb_strimwidth(strip_tags($raw), 0, 150, '…');
@@ -353,6 +363,19 @@ function hermes_render_card(?string $aiVerdict, ?string $aiAnalysis, ?string $ai
 
 
 /**
+ * نرمال‌سازی متون فارسی (یکسان‌سازی حروف عربی/فارسی، نیم‌فاصله‌ها و علائم)
+ */
+function hermes_normalize_persian(string $text): string
+{
+    $text = mb_strtolower($text);
+    // یکسان‌سازی حروف کاف و یای عربی با فارسی
+    $text = str_replace(['ي', 'ك', 'ك', 'ى', 'ئ', 'ة'], ['ی', 'ک', 'ک', 'ی', 'ی', 'ه'], $text);
+    // تبدیل نیم‌فاصله، فاصله‌های باریک و اعراب به فاصله عادی
+    $text = preg_replace('/[\x{200C}\x{200B}\x{200D}\x{FEFF}\p{M}\p{P}\p{S}]+/u', ' ', $text);
+    return trim(preg_replace('/\s+/u', ' ', $text));
+}
+
+/**
  * سیستم بازیابی و پاسخگویی به فرآیندهای سازمان (Process RAG System)
  * جستجوی نزدیک‌ترین فرآیندها، استخراج مستندات و ارسال به هرمس
  *
@@ -397,7 +420,7 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
     }
 
     // 2. کلمه‌بندی و پاکسازی پرسمان برای سنجش شباهت و امتیازدهی
-    $cleanQuery = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', mb_strtolower($q));
+    $cleanQuery = hermes_normalize_persian($q);
     $words = array_filter(explode(' ', $cleanQuery), fn($w) => mb_strlen($w) >= 2);
 
     $stopwords = ['است', 'برای', 'چگونه', 'چطور', 'آیا', 'هایی', 'های', 'می', 'کند', 'شود', 'باید', 'کدام', 'این', 'آن', 'با', 'در', 'از', 'به', 'رو', 'که', 'یک', 'تا'];
@@ -410,22 +433,22 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
     $scored = [];
     foreach ($allProcs as $proc) {
         $score = 0;
-        $nameLower = mb_strtolower($proc['Name']);
-        $descLower = mb_strtolower((string)$proc['Description']);
-        $catLower = mb_strtolower((string)$proc['CatTitle']);
-        $teamLower = mb_strtolower((string)$proc['TeamName']);
+        $nameNorm = hermes_normalize_persian($proc['Name']);
+        $descNorm = hermes_normalize_persian((string)$proc['Description']);
+        $catNorm = hermes_normalize_persian((string)$proc['CatTitle']);
+        $teamNorm = hermes_normalize_persian((string)$proc['TeamName']);
 
         // تطابق کامل نام در پرسمان
-        if (str_contains($cleanQuery, $nameLower)) {
+        if ($nameNorm !== '' && str_contains($cleanQuery, $nameNorm)) {
             $score += 60;
         }
 
         // تطابق تک‌تک کلمات
         foreach ($meaningfulWords as $w) {
-            if (str_contains($nameLower, $w)) $score += 20;
-            if (str_contains($descLower, $w)) $score += 10;
-            if (str_contains($catLower, $w)) $score += 8;
-            if (str_contains($teamLower, $w)) $score += 6;
+            if (str_contains($nameNorm, $w)) $score += 20;
+            if (str_contains($descNorm, $w)) $score += 10;
+            if (str_contains($catNorm, $w)) $score += 8;
+            if (str_contains($teamNorm, $w)) $score += 6;
         }
 
         // بررسی فایل‌های متنی روی دیسک (پیوست‌ها و دستورالعمل‌ها)
@@ -440,9 +463,9 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
                 if (str_ends_with($f, '.txt') || str_ends_with($f, '.md')) {
                     $docContent = @file_get_contents($absDir . DIRECTORY_SEPARATOR . $f);
                     if ($docContent) {
-                        $docContentLower = mb_strtolower($docContent);
+                        $docNorm = hermes_normalize_persian($docContent);
                         foreach ($meaningfulWords as $w) {
-                            if (str_contains($docContentLower, $w)) $score += 6;
+                            if (str_contains($docNorm, $w)) $score += 6;
                         }
                         if (mb_strlen($docExcerpt) < 500) {
                             $docExcerpt .= "\n[فایل " . $f . "]: " . mb_strimwidth(trim($docContent), 0, 400, '…');

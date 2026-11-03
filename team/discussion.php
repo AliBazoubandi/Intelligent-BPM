@@ -21,7 +21,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $impId = (int)($_POST['imp_id'] ?? 0);
         $action = (string)($_POST['action'] ?? 'reply');
 
-        if ($action === 'hermes_eval') {
+        // بررسی اینکه آیا این تیم مسئول فرآیند است
+        $st = $db->prepare('SELECT p.ResponsibleTeamID FROM Improvements i JOIN Processes p ON p.ID = i.ProcessID WHERE i.ID = ?');
+        $st->bind_param('i', $impId);
+        $st->execute();
+        $permRow = $st->get_result()->fetch_assoc();
+        $st->close();
+
+        if (!$permRow) {
+            $error = 'بهبود مورد نظر یافت نشد.';
+        } elseif ((int)$permRow['ResponsibleTeamID'] !== $tid) {
+            $error = 'فقط تیم مسئول فرآیند اجازه پاسخگویی یا ارزیابی هرمس را دارد.';
+        } elseif ($action === 'hermes_eval') {
             @set_time_limit(90);
             $res = hermes_evaluate_improvement($db, $impId);
             if ($res['success']) {
@@ -31,11 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } else {
             $body = trim((string)($_POST['body'] ?? ''));
-            $st = $db->prepare('SELECT ID FROM Improvements WHERE ID = ?');
-            $st->bind_param('i', $impId); $st->execute();
-            $ok = (bool)$st->get_result()->fetch_assoc(); $st->close();
-            if (!$ok) $error = 'بهبود مورد نظر یافت نشد.';
-            elseif (mb_strlen($body) < 2) $error = 'متن پیام را وارد کنید.';
+            if (mb_strlen($body) < 2) $error = 'متن پیام را وارد کنید.';
             else {
                 $senderType = 'team';
                 $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement',?,?,?,?)");
@@ -52,11 +59,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $impId = (int)($_GET['imp'] ?? 0);
 if ($impId > 0) {
     $st = $db->prepare(
-        "SELECT i.*, p.Name AS ProcName, p.ID AS Pid, cat.Title AS CatTitle,
-                u.Name AS ReqName, u.Family AS ReqFamily
+        "SELECT i.*, p.Name AS ProcName, p.ID AS Pid, p.ResponsibleTeamID, cat.Title AS CatTitle,
+                u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS RespTeamName
          FROM Improvements i
          JOIN Processes p ON p.ID = i.ProcessID
          JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+         LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
          LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type='user'
          WHERE i.ID = ?"
     );
@@ -68,6 +76,8 @@ if ($impId > 0) {
         echo '<div class="card"><div class="empty"><span class="ico">' . app_icon('search', '', 36) . '</span><p>این گفتگو وجود ندارد.</p></div></div>';
         app_footer(); exit;
     }
+
+    $isOwnerTeam = ((int)$imp['ResponsibleTeamID'] === $tid);
 
     $st = $db->prepare(
         "SELECT r.*, u.Name, u.Family, t.TeamName
@@ -97,9 +107,12 @@ if ($impId > 0) {
         <p class="sub" style="color:var(--muted);font-size:12.5px">
             درخواست <?= e(trim((string)$imp['ReqName'] . ' ' . (string)$imp['ReqFamily']) ?: '—') ?> · <?= e(fmt_date($imp['CreatedAt'])) ?>
         </p>
+        <?php if (!$isOwnerTeam): ?>
+            <div class="alert alert-info">تیم مسئول این فرآیند «<?= e($imp['RespTeamName'] ?? '—') ?>» است؛ نمایش فقط‌خواندنی.</div>
+        <?php endif; ?>
         <?php if ($imp['Description']): ?><p style="background:var(--brand-soft);border-radius:12px;padding:12px 16px;font-size:13.5px"><?= nl2br(e($imp['Description'])) ?></p><?php endif; ?>
 
-        <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, true) ?>
+        <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, $isOwnerTeam) ?>
 
         <div class="thread">
             <?php if (!$msgs): ?><div class="empty"><span class="ico"><?= app_icon('discussion', '', 36) ?></span><p>هنوز پیامی در این گفتگو ثبت نشده است.</p></div><?php endif; ?>
@@ -119,6 +132,7 @@ if ($impId > 0) {
             <?php endforeach; ?>
         </div>
 
+        <?php if ($isOwnerTeam): ?>
         <form method="post" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
             <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="imp_id" value="<?= $impId ?>">
@@ -128,6 +142,7 @@ if ($impId > 0) {
             </label>
             <button class="btn">ارسال پاسخ</button>
         </form>
+        <?php endif; ?>
     </div>
     <?php app_footer(); exit;
 }

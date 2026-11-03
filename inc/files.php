@@ -3,6 +3,7 @@
  * کمک‌توابع مدیریت فایل شاخه processes/
  * همه مسیرها نسبت به PROCESSES_ROOT و با جداکننده «/» بیان می‌شوند.
  */
+require_once __DIR__ . '/../config.php';
 
 /** مسیر مطلق ریشه فایل‌ها */
 function fm_root(): string

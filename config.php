@@ -5,8 +5,6 @@
  * ساختار: /user (کاربران) | /team (تیم‌های فرآیند) | /processes (فایل‌های فرآیند)
  */
 
-define('APP_NAME', (string)env('APP_NAME', 'RobinFlow'));
-define('APP_TITLE_FA', 'رابین‌فلو');
 define('APP_ROOT', __DIR__);
 define('PROCESSES_ROOT', APP_ROOT . DIRECTORY_SEPARATOR . 'processes');
 
@@ -42,9 +40,6 @@ function load_env(string $path): void
     }
 }
 
-// بارگذاری تنظیمات از .env
-load_env(APP_ROOT . DIRECTORY_SEPARATOR . '.env');
-
 /**
  * دریافت مقدار متغیر محیطی همراه با مقدار پیش‌فرض
  */
@@ -56,6 +51,12 @@ function env(string $key, mixed $default = null): mixed
     }
     return $val;
 }
+
+// بارگذاری تنظیمات از .env
+load_env(APP_ROOT . DIRECTORY_SEPARATOR . '.env');
+
+define('APP_NAME', (string)env('APP_NAME', 'RobinFlow'));
+define('APP_TITLE_FA', 'رابین‌فلو');
 
 // دیتابیس
 define('DB_HOST', (string)env('DB_HOST', 'localhost'));

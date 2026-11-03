@@ -136,9 +136,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         elseif ($action === 'delete_file') {
-            $f = basename((string)($_POST['name'] ?? ''));
-            $fp = $abs . DIRECTORY_SEPARATOR . $f;
-            if ($f === '' || str_starts_with($f, '.') || !is_file($fp)) $error = 'فایل معتبر نیست.';
+            $f = fm_clean_name((string)($_POST['name'] ?? ''));
+            $fp = ($f !== null) ? $abs . DIRECTORY_SEPARATOR . $f : '';
+            if ($f === null || str_starts_with($f, '.') || !is_file($fp)) $error = 'فایل معتبر نیست.';
             elseif (@unlink($fp)) $notice = '«' . $f . '» حذف شد.';
             else $error = 'حذف فایل ناموفق بود.';
         }

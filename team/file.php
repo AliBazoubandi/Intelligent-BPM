@@ -33,8 +33,8 @@ if (!$proc) {
 }
 
 $isOwnerTeam = (int)$proc['ResponsibleTeamID'] === $tid;
-$relDir = trim((string)$proc['FilePath'], '/');
-if ($relDir === '') $relDir = $proc['FolderName'] . '/' . $proc['Name'];
+$relDir = fm_normalize_rel((string)$proc['FilePath']);
+if ($relDir === '') $relDir = fm_normalize_rel($proc['FolderName'] . '/' . $proc['Name']);
 $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir) . DIRECTORY_SEPARATOR;
 
 $notice = '';
@@ -228,7 +228,7 @@ $csrf = csrf_token();
     <?php else: ?>
         <ul class="file-list">
             <?php foreach ($files as $f):
-                $url = BASE_URL . '/processes/' . implode('/', array_map('rawurlencode', explode('/', $relDir . '/' . $f['name']))); ?>
+                $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']); ?>
                 <li>
                     <span>📄</span>
                     <a href="<?= e($url) ?>" target="_blank" rel="noopener"><?= e($f['name']) ?></a>
