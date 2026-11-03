@@ -8,7 +8,7 @@ require_once __DIR__ . '/../inc/hermes.php';
 $id = require_area('user');
 $db = app_db();
 
-$canSubmit = !empty($id['perms']['improve']);
+$canSubmit = true; // All users currently have permission to suggest optimizations
 $notice = '';
 $error = '';
 

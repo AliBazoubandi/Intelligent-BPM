@@ -20,13 +20,24 @@ function auth_session_start(): void
 function current_identity(?string $area = null): ?array
 {
     auth_session_start();
+    $user = $_SESSION['op_user'] ?? (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'user' ? $_SESSION['op_identity'] : null);
+    if ($user !== null) {
+        // All users currently have permission to suggest optimizations
+        $user['perms']['improve'] = 1;
+        if (isset($_SESSION['op_user'])) {
+            $_SESSION['op_user']['perms']['improve'] = 1;
+        }
+        if (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'user') {
+            $_SESSION['op_identity']['perms']['improve'] = 1;
+        }
+    }
     if ($area === 'user') {
-        return $_SESSION['op_user'] ?? (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'user' ? $_SESSION['op_identity'] : null);
+        return $user;
     }
     if ($area === 'team') {
         return $_SESSION['op_team'] ?? (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'team' ? $_SESSION['op_identity'] : null);
     }
-    return $_SESSION['op_user'] ?? $_SESSION['op_team'] ?? $_SESSION['op_identity'] ?? null;
+    return $user ?? $_SESSION['op_team'] ?? $_SESSION['op_identity'] ?? null;
 }
 
 function csrf_token(): string
@@ -104,7 +115,7 @@ function attempt_user_login(string $code, string $password): ?array
         'perms' => [
             'request' => (int)$row['CanRequest'],
             'search' => (int)$row['CanSearch'],
-            'improve' => (int)$row['CanImprove'],
+            'improve' => 1, // All users currently have permission to suggest optimizations
             'approve' => (int)$row['CanApprove'],
         ],
     ];

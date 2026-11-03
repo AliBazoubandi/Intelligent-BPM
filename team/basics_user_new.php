@@ -91,7 +91,7 @@ while ($r = $res->fetch_assoc()) $companies[] = $r;
         <span class="field-label">اجازه‌ها</span>
         <div class="chips" style="margin-bottom:14px">
             <?php foreach (['can_request' => 'درخواست', 'can_search' => 'جستجو', 'can_improve' => 'ثبت بهبود', 'can_approve' => 'تأیید'] as $k => $lbl): ?>
-                <label class="chip" style="cursor:pointer"><input type="checkbox" name="<?= $k ?>" value="1" style="margin-inline-end:6px" <?= $k === 'can_search' ? 'checked' : '' ?>> <?= $lbl ?></label>
+                <label class="chip" style="cursor:pointer"><input type="checkbox" name="<?= $k ?>" value="1" style="margin-inline-end:6px" <?= in_array($k, ['can_search', 'can_improve'], true) ? 'checked' : '' ?>> <?= $lbl ?></label>
             <?php endforeach; ?>
         </div>
         <button class="btn">ثبت کاربر</button>

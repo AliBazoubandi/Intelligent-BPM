@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS Personnel (
   TeamID INT UNSIGNED NULL COMMENT 'تیم فرآیند (در صورت عضویت)',
   CanRequest TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'اجازه درخواست',
   CanSearch TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'اجازه جستجو',
-  CanImprove TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'اجازه ثبت بهبود',
+  CanImprove TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'اجازه ثبت بهبود',
   CanApprove TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'اجازه تأیید',
   PasswordHash VARCHAR(255) NULL COMMENT 'رمز ورود کاربر',
   Active TINYINT(1) NOT NULL DEFAULT 1,

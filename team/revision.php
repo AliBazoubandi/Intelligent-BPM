@@ -354,3 +354,4 @@ team_header($id, 'discussion', $pageTitle);
 <?php endif; ?>
 
 <?php app_footer(); ?>
+

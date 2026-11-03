@@ -280,3 +280,4 @@ function generate_process_procedure_pdf(array $process, array $revisionData, str
 
     return $mpdf->Output('', Destination::STRING_RETURN);
 }
+
