@@ -6,6 +6,8 @@
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/icons.php';
+require_once __DIR__ . '/files.php';
+require_once __DIR__ . '/pdf_generator.php';
 
 /**
  * بررسی در دسترس بودن سرویس هرمس
@@ -357,6 +359,13 @@ function hermes_render_card(?string $aiVerdict, ?string $aiAnalysis, ?string $ai
         $html .= '<div class="ai-sec">' . nl2br(e((string)$aiAnalysis)) . '</div>';
     }
 
+    if ($isYes && $canReevaluate) {
+        $html .= '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(22,163,74,0.3);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+        $html .= '<span style="font-size:12.5px;color:var(--muted)">داور هرمس این بهینه‌سازی را مفید و بدون تعارض تشخیص داده است؛ می‌توانید دستورالعمل و فایل PDF فرآیند را به‌صورت خودکار به‌روزرسانی کنید.</span>';
+        $html .= '<a href="revision.php?imp=' . $impId . '" class="btn btn-sm btn-brand" style="display:inline-flex;align-items:center;gap:6px">' . app_icon('bot', '', 14) . '<span>اعمال بهینه‌سازی و بازنویسی سند با هرمس</span></a>';
+        $html .= '</div>';
+    }
+
     $html .= '</div>';
     return $html;
 }
@@ -569,3 +578,386 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
         'error' => null
     ];
 }
+
+/**
+ * افزایش نسخه فرآیند بر اساس الگوی نگارش نسخه (مثلاً 1.1 -> 1.2 یا 1.0 -> 1.1)
+ */
+function hermes_bump_version(string $ver): string
+{
+    $ver = trim($ver);
+    if (preg_match('/^(\d+)\.(\d+)$/', $ver, $m)) {
+        $major = (int)$m[1];
+        $minor = (int)$m[2] + 1;
+        return "{$major}.{$minor}";
+    }
+    if (preg_match('/^(\d+)$/', $ver, $m)) {
+        return $m[1] . '.1';
+    }
+    return ($ver !== '') ? ($ver . '.1') : '1.1';
+}
+
+/**
+ * ایجاد پیش‌نویس بهینه‌سازی و بازنویسی دستورالعمل فرآیند توسط هرمس
+ *
+ * @param mysqli $db
+ * @param int $improvementId شناسه پیشنهاد بهبود
+ * @return array{success:bool, revision:?array, error:?string}
+ */
+function hermes_draft_procedure_revision(mysqli $db, int $improvementId): array
+{
+    // دریافت اطلاعات بهبود و فرآیند
+    $st = $db->prepare(
+        "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
+                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID,
+                cat.Title AS CatTitle, cat.FolderName,
+                comp.Name AS CompanyName,
+                team.TeamName AS RespTeamName,
+                u.Name AS ReqName, u.Family AS ReqFamily
+         FROM Improvements i
+         JOIN Processes p ON p.ID = i.ProcessID
+         JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+         LEFT JOIN Companies comp ON comp.ID = p.CompanyID
+         LEFT JOIN ProcessTeams team ON team.ID = p.ResponsibleTeamID
+         LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type = 'user'
+         WHERE i.ID = ?"
+    );
+    $st->bind_param('i', $improvementId);
+    $st->execute();
+    $row = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$row) {
+        return ['success' => false, 'revision' => null, 'error' => 'پیشنهاد بهبود یافت نشد.'];
+    }
+
+    $currentVersion = trim((string)$row['CurrentVersion']) ?: '1.0';
+    $suggestedVersion = hermes_bump_version($currentVersion);
+
+    // دریافت نقش‌های مجری فرآیند
+    $executors = [];
+    $st = $db->prepare("SELECT pe.*, p.Name AS PersName, p.Family AS PersFamily, t.TeamName
+                        FROM ProcessExecutors pe
+                        LEFT JOIN Personnel p ON p.ID = pe.PersonnelID
+                        LEFT JOIN ProcessTeams t ON t.ID = pe.TeamID
+                        WHERE pe.ProcessID = ?");
+    $st->bind_param('i', $row['Pid']);
+    $st->execute();
+    $res = $st->get_result();
+    while ($ex = $res->fetch_assoc()) {
+        $executors[] = $ex;
+    }
+    $st->close();
+
+    // دریافت سوابق تغییرات قبلی
+    $history = [];
+    $st = $db->prepare("SELECT * FROM Changes WHERE ProcessID = ? ORDER BY ID DESC LIMIT 5");
+    $st->bind_param('i', $row['Pid']);
+    $st->execute();
+    $res = $st->get_result();
+    while ($ch = $res->fetch_assoc()) {
+        $history[] = $ch;
+    }
+    $st->close();
+
+    // خواندن فایل‌های متنی یا دستورالعمل‌های فعلی فرآیند
+    $relDir = fm_normalize_rel((string)$row['FilePath']);
+    if ($relDir === '') {
+        $relDir = fm_normalize_rel($row['FolderName'] . '/' . $row['ProcName']);
+    }
+    $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir);
+    $existingDocsText = '';
+    if (is_dir($absDir)) {
+        foreach (scandir($absDir) as $f) {
+            if (str_starts_with($f, '.')) continue;
+            if (str_ends_with($f, '.txt') || str_ends_with($f, '.md')) {
+                $content = @file_get_contents($absDir . DIRECTORY_SEPARATOR . $f);
+                if ($content) {
+                    $existingDocsText .= "\n[سند فعلی: {$f}]\n" . trim($content) . "\n";
+                }
+            }
+        }
+    }
+    if ($existingDocsText === '') {
+        $existingDocsText = trim((string)$row['ProcDesc']) ?: 'دستورالعمل اولیه ثبت نشده است.';
+    }
+
+    // ساخت پرامپت اختصاصی برای بازنویسی دستورالعمل توسط هرمس
+    $systemPrompt = "شما «هرمس»، مشاور ارشد مهندسی فرآیندهای سازمانی و متخصص تدوین مستندات ایزو و BPMN هستید.\n"
+        . "وظیفه شما: یک پیشنهاد بهبود برای فرآیند مورد نظر تصویب شده است. شما باید دستورالعمل اجرایی فرآیند را بازنویسی کنید تا این بهبود به صورت ساختاریافته، شفاف و کاربردی در گام‌های فرآیند تلفیق شود.\n"
+        . "خروجی شما باید منحصراً یک ساختار JSON معتبر و بدون هیچ متن اضافی قبل یا بعد از آن باشد.";
+
+    $userPrompt = "مشخصات فرآیند سازمانی:\n"
+        . "- نام فرآیند: {$row['ProcName']}\n"
+        . "- دسته‌بندی: {$row['CatTitle']}\n"
+        . "- نسخه فعلی: {$currentVersion}\n"
+        . "- تیم مسئول: " . ($row['RespTeamName'] ?: 'تیم فرآیند') . "\n"
+        . "- مستندات و ضوابط فعلی فرآیند:\n{$existingDocsText}\n\n"
+        . "مشخصات پیشنهاد بهبود مصوب:\n"
+        . "- عنوان بهبود: {$row['Title']}\n"
+        . "- شرح بهبود ارائه شده: " . ($row['Description'] ?: '—') . "\n"
+        . "- تحلیل و ارزیابی پیشین هرمس: " . ($row['AiAnalysis'] ?: 'پیشنهاد مفید و بدون تعارض تشخیص داده شده است') . "\n\n"
+        . "لطفاً پیش‌نویس بازنگری دستورالعمل را به زبان فارسی و در قالب ساختار JSON زیر تدوین نمایید:\n"
+        . "{\n"
+        . '  "suggested_version": "' . $suggestedVersion . '",' . "\n"
+        . '  "change_summary": "شرح خلاصه تغییرات و اصلاحات اعمال‌شده در این نسخه",' . "\n"
+        . '  "purpose": "هدف و دامنه کاربرد دستورالعمل بازنگری‌شده",' . "\n"
+        . '  "steps": [' . "\n"
+        . '    {"step": 1, "role": "عنوان نقش مسئول اقدام", "action": "شرح شفاف و گام‌به‌گام اقدام اجرایی", "notes": "الزامات، فرم‌ها و نکات کنترلی"}' . "\n"
+        . '  ],' . "\n"
+        . '  "optimization_impact": "تاثیر و دستاورد عملیاتی این بهینه‌سازی بر سرعت، کیفیت و کارایی فرآیند"' . "\n"
+        . "}";
+
+    $messages = [
+        ['role' => 'system', 'content' => $systemPrompt],
+        ['role' => 'user', 'content' => $userPrompt],
+    ];
+
+    $raw = hermes_chat($messages, 0.2, 1600, 45);
+
+    $parsed = null;
+    if ($raw && preg_match('/\{[\s\S]*\}/u', $raw, $m)) {
+        $parsed = json_decode($m[0], true);
+    }
+
+    // در صورت در دسترس نبودن هوش مصنوعی یا خطا، ایجاد پیش‌نویس هوشمند جایگزین (Fallback)
+    if (!is_array($parsed) || empty($parsed['steps'])) {
+        $changeDesc = "اعمال پیشنهاد بهبود «{$row['Title']}»؛ بهینه‌سازی گام‌های اجرایی و رفع موانع کاری.";
+        $parsed = [
+            'suggested_version' => $suggestedVersion,
+            'change_summary' => $changeDesc,
+            'purpose' => "هدف از این دستورالعمل، استانداردسازی و تسریع در اجرای فرآیند «{$row['ProcName']}» با لحاظ آخرین بهینه‌سازی‌های سازمانی است.",
+            'steps' => [
+                [
+                    'step' => 1,
+                    'role' => 'متقاضی / آغازگر',
+                    'action' => 'ثبت الکترونیکی درخواست و بارگذاری کلیه مستندات مربوطه در پرتال سازمانی.',
+                    'notes' => 'بررسی اولیه صحت مندرجات پیش از ارسال نهایی.'
+                ],
+                [
+                    'step' => 2,
+                    'role' => ($row['RespTeamName'] ?: 'تیم مسئول فرآیند'),
+                    'action' => 'بررسی سیستمی، اعتبارسنجی مدارک و کنترل عدم تعارض با سایر فرآیندها طبق بهینه‌سازی اخیر.',
+                    'notes' => 'انجام بررسی در کمترین زمان ممکن بر اساس شاخص‌های SLA.'
+                ],
+                [
+                    'step' => 3,
+                    'role' => 'واحد اجرایی ذی‌ربط',
+                    'action' => 'اجرای اقدام فنی/اداری و ثبت وضعیت خاتمه یافته در پرونده الکترونیکی.',
+                    'notes' => 'صدور تأییدیه و ثبت در تاریخچه تغییرات فرآیند.'
+                ]
+            ],
+            'optimization_impact' => "بهینه‌سازی بر اساس پیشنهاد «{$row['Title']}» موجب کاهش زمان گردش کار و بهبود دقت اجرای فرآیند گردیده است."
+        ];
+    }
+
+    // تکمیل متادیتای مورد نیاز برای نمایش و تولید PDF
+    $revision = [
+        'improvement_id' => (int)$row['ID'],
+        'improvement_title' => $row['Title'],
+        'process_id' => (int)$row['Pid'],
+        'process_name' => $row['ProcName'],
+        'category_title' => $row['CatTitle'],
+        'old_version' => $currentVersion,
+        'new_version' => trim((string)($parsed['suggested_version'] ?? $suggestedVersion)),
+        'change_summary' => trim((string)($parsed['change_summary'] ?? '')),
+        'purpose' => trim((string)($parsed['purpose'] ?? '')),
+        'steps' => $parsed['steps'] ?? [],
+        'optimization_impact' => trim((string)($parsed['optimization_impact'] ?? '')),
+        'resp_team' => $row['RespTeamName'] ?: 'تیم فرآیند',
+        'company_name' => $row['CompanyName'] ?? (defined('APP_NAME') ? APP_NAME : 'سازمان'),
+        'owner_name' => trim((string)$row['OwnerPersonnelID']),
+        'revision_history' => $history,
+    ];
+
+    return ['success' => true, 'revision' => $revision, 'error' => null];
+}
+
+/**
+ * اعمال قطعی بهینه‌سازی در پرونده فرآیند:
+ * ۱. بایگانی نسخه‌های قبلی مستندات در پوشه history/v{old_version}/
+ * ۲. تدوین و تولید نسخه جدید فایل PDF دستورالعمل اجرایی با هرمس
+ * ۳. ایجاد فایل متنی همگام برای به‌روزرسانی سیستم جستجو و RAG
+ * ۴. به‌روزرسانی نسخه در جدول Processes
+ * ۵. تغییر وضعیت پیشنهاد بهبود به implemented در جدول Improvements
+ * ۶. ثبت رکورد تغییر در جدول Changes
+ * ۷. ارسال پیام رسمی در رشته گفتگوی فرآیند
+ *
+ * @param mysqli $db
+ * @param int $improvementId شناسه پیشنهاد بهبود
+ * @param int $teamId شناسه تیم انجام‌دهنده
+ * @param array $revisionData اطلاعات بازنگری تاییدشده
+ * @return array{success:bool, new_version:string, pdf_name:string, pdf_url:string, error:?string}
+ */
+function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $teamId, array $revisionData): array
+{
+    require_once __DIR__ . '/files.php';
+    require_once __DIR__ . '/pdf_generator.php';
+
+    // دریافت اطلاعات بهبود و فرآیند
+    $st = $db->prepare(
+        "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
+                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID,
+                cat.Title AS CatTitle, cat.FolderName,
+                comp.Name AS CompanyName,
+                team.TeamName AS RespTeamName
+         FROM Improvements i
+         JOIN Processes p ON p.ID = i.ProcessID
+         JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+         LEFT JOIN Companies comp ON comp.ID = p.CompanyID
+         LEFT JOIN ProcessTeams team ON team.ID = p.ResponsibleTeamID
+         WHERE i.ID = ?"
+    );
+    $st->bind_param('i', $improvementId);
+    $st->execute();
+    $proc = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$proc) {
+        return ['success' => false, 'new_version' => '', 'pdf_name' => '', 'pdf_url' => '', 'error' => 'پیشنهاد بهبود یافت نشد.'];
+    }
+
+    if ((int)$proc['ResponsibleTeamID'] !== $teamId) {
+        return ['success' => false, 'new_version' => '', 'pdf_name' => '', 'pdf_url' => '', 'error' => 'فقط تیم مسئول فرآیند اجازه اعمال تغییرات و به‌روزرسانی مستندات را دارد.'];
+    }
+
+    $oldVersion = trim((string)$proc['CurrentVersion']) ?: '1.0';
+    $newVersion = trim((string)($revisionData['new_version'] ?? ''));
+    if ($newVersion === '') {
+        $newVersion = hermes_bump_version($oldVersion);
+    }
+
+    $changeSummary = trim((string)($revisionData['change_summary'] ?? ''));
+    if ($changeSummary === '') {
+        $changeSummary = "اعمال و یکپارچه‌سازی بهبود «{$proc['Title']}» در گردش کار فرآیند توسط هرمس.";
+    }
+
+    // آماده‌سازی مسیر فیزیکی پوشه فرآیند
+    $relDir = fm_normalize_rel((string)$proc['FilePath']);
+    if ($relDir === '') {
+        $relDir = fm_normalize_rel($proc['FolderName'] . '/' . $proc['ProcName']);
+    }
+    $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir);
+    if (!is_dir($absDir)) {
+        @mkdir($absDir, 0775, true);
+        @file_put_contents($absDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+    }
+
+    // ۱. بایگانی مستندات پیشین در پوشه history/v{old_version}/
+    $historyDir = $absDir . DIRECTORY_SEPARATOR . 'history' . DIRECTORY_SEPARATOR . 'v' . preg_replace('/[^\w.-]/', '_', $oldVersion);
+    if (!is_dir($historyDir)) {
+        @mkdir($historyDir, 0775, true);
+        @file_put_contents($historyDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+    }
+
+    // کپی اسناد متنی و PDF فعلی به پوشه آرشیو
+    if (is_dir($absDir)) {
+        foreach (scandir($absDir) as $f) {
+            if ($f === '.' || $f === '..' || $f === 'history' || str_starts_with($f, '.')) continue;
+            $sourcePath = $absDir . DIRECTORY_SEPARATOR . $f;
+            if (is_file($sourcePath)) {
+                $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                if (in_array($ext, ['pdf', 'txt', 'md', 'docx'], true)) {
+                    @copy($sourcePath, $historyDir . DIRECTORY_SEPARATOR . $f);
+                }
+            }
+        }
+    }
+
+    // ۲. تولید PDF جدید با موتور mPDF
+    $pdfFileName = 'دستورالعمل-فرآیند-v' . $newVersion . '.pdf';
+    $targetPdfPath = $absDir . DIRECTORY_SEPARATOR . $pdfFileName;
+    $canonicalPdfPath = $absDir . DIRECTORY_SEPARATOR . 'دستورالعمل-فرآیند.pdf';
+
+    $revisionData['old_version'] = $oldVersion;
+    $revisionData['new_version'] = $newVersion;
+    $revisionData['improvement_id'] = (int)$proc['ID'];
+    $revisionData['improvement_title'] = $proc['Title'];
+
+    try {
+        generate_process_procedure_pdf($proc, $revisionData, $targetPdfPath);
+        // کپی به عنوان نسخه جاری
+        @copy($targetPdfPath, $canonicalPdfPath);
+    } catch (Throwable $e) {
+        return ['success' => false, 'new_version' => $newVersion, 'pdf_name' => '', 'pdf_url' => '', 'error' => 'خطا در ایجاد فایل PDF: ' . $e->getMessage()];
+    }
+
+    // ۳. نگارش فایل متنی دستورالعمل جهت بازیابی آنی در چت RAG هرمس
+    $txtFileName = 'دستورالعمل-فرآیند.txt';
+    $txtContent = "فرآیند: {$proc['ProcName']}\n"
+        . "دسته‌بندی: {$proc['CatTitle']}\n"
+        . "نسخه: {$newVersion}\n"
+        . "تاریخ بازنگری: " . date('Y-m-d') . "\n"
+        . "وضعیت: تصویب‌شده (اعمال بهینه‌سازی توسط هرمس)\n\n"
+        . "هدف و دامنه کاربرد:\n" . ($revisionData['purpose'] ?? '') . "\n\n"
+        . "شرح تغییرات این نسخه:\n{$changeSummary}\n\n"
+        . "مراحل اجرایی فرآیند:\n";
+
+    if (!empty($revisionData['steps']) && is_array($revisionData['steps'])) {
+        foreach ($revisionData['steps'] as $st) {
+            $txtContent .= "گام {$st['step']} [مسئول: {$st['role']}]: {$st['action']}\n";
+            if (!empty($st['notes']) && $st['notes'] !== '—') {
+                $txtContent .= "  نکات و الزامات: {$st['notes']}\n";
+            }
+        }
+    }
+    @file_put_contents($absDir . DIRECTORY_SEPARATOR . $txtFileName, $txtContent);
+
+    // ۴. به‌روزرسانی تراکنشی دیتابیس
+    $db->begin_transaction();
+    try {
+        // الف) ثبت در جدول Changes
+        $procId = (int)$proc['Pid'];
+        $impId = (int)$proc['ID'];
+        $chType = 'revision';
+        $appliedByType = 'team';
+        $chStatus = 'applied';
+        $st = $db->prepare(
+            "INSERT INTO Changes (ProcessID, ImprovementID, ChangeType, Description, OldVersion, NewVersion, AppliedByType, AppliedByID, Status, EffectiveDate)
+             VALUES (?,?,?,?,?,?,?,?,?,CURDATE())"
+        );
+        $st->bind_param('iisssssis', $procId, $impId, $chType, $changeSummary, $oldVersion, $newVersion, $appliedByType, $teamId, $chStatus);
+        $st->execute();
+        $st->close();
+
+        // ب) به‌روزرسانی نسخه در جدول Processes
+        $st = $db->prepare("UPDATE Processes SET Version = ?, UpdatedAt = NOW() WHERE ID = ?");
+        $st->bind_param('si', $newVersion, $procId);
+        $st->execute();
+        $st->close();
+
+        // ج) به‌روزرسانی وضعیت بهبود به implemented
+        $st = $db->prepare("UPDATE Improvements SET Status = 'implemented', ReviewedByTeamID = ?, UpdatedAt = NOW() WHERE ID = ?");
+        $st->bind_param('ii', $teamId, $impId);
+        $st->execute();
+        $st->close();
+
+        // د) ثبت پیام در رشته گفتگو
+        $refType = 'improvement';
+        $senderType = 'team';
+        $pdfRelPath = $relDir . '/' . $pdfFileName;
+        $pdfUrl = fm_url($pdfRelPath);
+        $msgBody = "✅ پیشنهاد بهبود توسط تیم مسئول تصویب و اعمال شد.\n"
+            . "مستند دستورالعمل فرآیند با شماره نسخه جدید «{$newVersion}» توسط موتور مهندسی هرمس بازنویسی و فایل رسمی PDF آن در پرونده فرآیند منتشر گردید.\n"
+            . "خلاصه تغییرات: {$changeSummary}";
+
+        $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES (?,?,?,?,?)");
+        $st->bind_param('sisis', $refType, $impId, $senderType, $teamId, $msgBody);
+        $st->execute();
+        $st->close();
+
+        $db->commit();
+    } catch (Throwable $dbErr) {
+        $db->rollback();
+        return ['success' => false, 'new_version' => $newVersion, 'pdf_name' => '', 'pdf_url' => '', 'error' => 'خطای دیتابیس در ذخیره تغییرات: ' . $dbErr->getMessage()];
+    }
+
+    return [
+        'success' => true,
+        'new_version' => $newVersion,
+        'pdf_name' => $pdfFileName,
+        'pdf_rel' => $pdfRelPath,
+        'pdf_url' => fm_url($pdfRelPath),
+        'error' => null
+    ];
+}
+

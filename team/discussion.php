@@ -99,10 +99,23 @@ if ($impId > 0) {
     <div class="card">
         <div class="page-head" style="margin-bottom:6px">
             <h2 style="margin:0"><?= e($imp['Title']) ?> <span class="badge badge-<?= e($imp['Status']) ?>"><?= status_label($imp['Status']) ?></span></h2>
-            <a class="btn btn-ghost btn-sm" href="file.php?id=<?= (int)$imp['Pid'] ?>&tab=improvements" style="display:inline-flex;align-items:center;gap:6px">
-                <?= app_icon('files', '', 15) ?>
-                <span>پرونده «<?= e($imp['ProcName']) ?>»</span>
-            </a>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <?php if ($isOwnerTeam && $imp['Status'] !== 'implemented'): ?>
+                    <a class="btn btn-brand btn-sm" href="revision.php?imp=<?= $impId ?>" style="display:inline-flex;align-items:center;gap:6px">
+                        <?= app_icon('bot', '', 15) ?>
+                        <span>اعمال بهبود و بازنویسی سند با هرمس</span>
+                    </a>
+                <?php elseif ($imp['Status'] === 'implemented'): ?>
+                    <span class="badge" style="background:#dcfce7;color:#166534;font-size:12px;padding:6px 12px;border-radius:14px;display:inline-flex;align-items:center;gap:5px">
+                        <?= app_icon('check', '', 13) ?>
+                        <span>بهبود اعمال و مستند به‌روز شد</span>
+                    </span>
+                <?php endif; ?>
+                <a class="btn btn-ghost btn-sm" href="file.php?id=<?= (int)$imp['Pid'] ?>&tab=improvements" style="display:inline-flex;align-items:center;gap:6px">
+                    <?= app_icon('files', '', 15) ?>
+                    <span>پرونده «<?= e($imp['ProcName']) ?>»</span>
+                </a>
+            </div>
         </div>
         <p class="sub" style="color:var(--muted);font-size:12.5px">
             درخواست <?= e(trim((string)$imp['ReqName'] . ' ' . (string)$imp['ReqFamily']) ?: '—') ?> · <?= e(fmt_date($imp['CreatedAt'])) ?>

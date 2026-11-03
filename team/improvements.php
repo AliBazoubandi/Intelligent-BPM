@@ -171,6 +171,14 @@ if ($stCount) {
                                     <span><?= (!empty($m['AiVerdict']) && $m['AiVerdict'] !== 'pending') ? 'ارزیابی مجدد' : 'ارزیابی با هرمس' ?></span>
                                 </button>
                             </form>
+                            <?php if ($m['Status'] !== 'implemented'): ?>
+                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
+                                    <?= app_icon('bot', '', 12) ?>
+                                    <span>بازنویسی سند</span>
+                                </a>
+                            <?php else: ?>
+                                <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:3px 8px;border-radius:10px">اجرا و مستند شد</span>
+                            <?php endif; ?>
                         </div>
                         <form method="post" class="inline-form">
                             <input type="hidden" name="csrf" value="<?= e($csrf) ?>">

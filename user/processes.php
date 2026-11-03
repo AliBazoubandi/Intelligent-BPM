@@ -83,10 +83,15 @@ if ($procId > 0) {
         <?php else: ?>
             <ul class="file-list">
                 <?php foreach ($files as $f):
-                    $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']); ?>
-                    <li>
-                        <span>📄</span>
-                        <a href="<?= e($url) ?>" target="_blank" rel="noopener"><?= e($f['name']) ?></a>
+                    $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']);
+                    $isHermesDoc = str_starts_with($f['name'], 'دستورالعمل-فرآیند');
+                ?>
+                    <li style="<?= $isHermesDoc ? 'background:#f0fdf4;border-right:3px solid #16a34a;padding-right:10px;border-radius:6px;' : '' ?>">
+                        <span><?= str_ends_with($f['name'], '.pdf') ? '📕' : '📄' ?></span>
+                        <a href="<?= e($url) ?>" target="_blank" rel="noopener" style="font-weight:<?= $isHermesDoc ? 'bold' : 'normal' ?>"><?= e($f['name']) ?></a>
+                        <?php if ($isHermesDoc): ?>
+                            <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px">دستورالعمل مصوب هرمس</span>
+                        <?php endif; ?>
                         <span class="fsize"><?= e(fmt_size($f['size'])) ?> · <?= e($f['time']) ?></span>
                     </li>
                 <?php endforeach; ?>

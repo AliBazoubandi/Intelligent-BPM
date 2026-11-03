@@ -228,10 +228,18 @@ $csrf = csrf_token();
     <?php else: ?>
         <ul class="file-list">
             <?php foreach ($files as $f):
-                $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']); ?>
-                <li>
-                    <span>📄</span>
-                    <a href="<?= e($url) ?>" target="_blank" rel="noopener"><?= e($f['name']) ?></a>
+                $url = fm_url($relDir === '' ? $f['name'] : $relDir . '/' . $f['name']);
+                $isHermesDoc = str_starts_with($f['name'], 'دستورالعمل-فرآیند');
+            ?>
+                <li style="<?= $isHermesDoc ? 'background:#f0fdf4;border-right:3px solid #16a34a;padding-right:10px;border-radius:6px;' : '' ?>">
+                    <span><?= str_ends_with($f['name'], '.pdf') ? '📕' : '📄' ?></span>
+                    <a href="<?= e($url) ?>" target="_blank" rel="noopener" style="font-weight:<?= $isHermesDoc ? 'bold' : 'normal' ?>"><?= e($f['name']) ?></a>
+                    <?php if ($isHermesDoc): ?>
+                        <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px">
+                            <?= app_icon('bot', '', 12) ?>
+                            <span>سند مصوب هرمس</span>
+                        </span>
+                    <?php endif; ?>
                     <span class="fsize"><?= e(fmt_size($f['size'])) ?> · <?= e($f['time']) ?></span>
                     <?php if ($isOwnerTeam): ?>
                     <form method="post" class="inline-form" onsubmit="return confirm('حذف این فایل؟');" style="margin-inline-start:10px">
@@ -290,7 +298,16 @@ $csrf = csrf_token();
                     <td><?= e(trim((string)$m['ReqName'] . ' ' . (string)$m['ReqFamily']) ?: (string)$m['ReqTeamName'] ?: '—') ?></td>
                     <td><span class="badge badge-<?= e($m['Status']) ?>"><?= status_label($m['Status']) ?></span></td>
                     <td><?= e(fmt_date_short($m['CreatedAt'])) ?></td>
-                    <td><a class="btn btn-ghost btn-xs" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px"><?= app_icon('discussion', '', 13) ?><span>گفتگو و تحلیل هرمس</span></a></td>
+                    <td>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                            <a class="btn btn-ghost btn-xs" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px"><?= app_icon('discussion', '', 13) ?><span>گفتگو و تحلیل هرمس</span></a>
+                            <?php if ($isOwnerTeam && $m['Status'] !== 'implemented'): ?>
+                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px"><?= app_icon('bot', '', 12) ?><span>بازنویسی سند</span></a>
+                            <?php elseif ($m['Status'] === 'implemented'): ?>
+                                <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 7px;border-radius:10px">اعمال‌شده</span>
+                            <?php endif; ?>
+                        </div>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

@@ -11,3 +11,9 @@
 *.log
 .installed
 
+# Composer dependencies
+/vendor/
+
+# Runtime process archives
+processes/**/history/
+
