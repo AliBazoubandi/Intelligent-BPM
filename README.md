@@ -71,10 +71,22 @@ php install.php
 ```
 *Or visit `http://localhost:8000/install.php` in your browser.*
 
-### 3. Start Application Server
-```bash
-php -S 0.0.0.0:8000
+### 3. Start Application Server (1-Click)
+
+Simply double-click `start.bat` (or `run.bat`) in the project root, or execute:
+```cmd
+start.bat
 ```
+*(On PowerShell, you can also run `.\start.ps1`, or `php bin/serve.php`)*
+
+This script automatically:
+1. Detects and verifies the PHP runtime and required extensions.
+2. Checks MySQL/MariaDB and starts the database daemon automatically if not yet running.
+3. Checks connectivity to the Hermes AI agent service.
+4. Opens `http://localhost:8000/` in your default web browser.
+5. Displays test credentials for both User and Team consoles.
+
+To stop the server at any time, press `Ctrl+C` in the console window or run `stop.bat`.
 
 ### 4. Portals & Default Credentials
 
