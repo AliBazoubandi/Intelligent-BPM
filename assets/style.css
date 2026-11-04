@@ -1246,45 +1246,109 @@ td .sub { font-size: 12px; color: var(--muted); }
 }
 .fm-tree ul {
     list-style: none;
-    margin: 3px 0 0;
-    padding-inline-start: 16px;
+    margin: 2px 0 0;
+    padding-inline-start: 14px;
     display: grid;
     gap: 2px;
 }
-.fm-tree li {
-    margin: 0;
+.fm-tree-node {
+    margin: 2px 0;
+    list-style: none;
 }
-.fm-tree a {
+.fm-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    border-radius: 8px;
+    padding: 2px 4px;
+    transition: background .15s ease;
+}
+.fm-tree-row:hover {
+    background: var(--brand-soft);
+}
+.fm-tree-row.is-active {
+    background: var(--brand-soft);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.fm-tree-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    transition: transform .2s ease, color .15s ease, background .15s ease;
+}
+.fm-tree-toggle-btn:hover {
+    color: var(--brand);
+    background: rgba(16, 185, 129, 0.2);
+}
+.fm-tree-toggle-spacer {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    display: inline-block;
+}
+.fm-tree-link {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 8px;
-    border-radius: 8px;
+    padding: 4px 6px;
     color: var(--ink);
     text-decoration: none;
     font-weight: 600;
     font-size: 12.5px;
-    transition: background .15s ease, color .15s ease;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    border-radius: 6px;
+    transition: color .15s ease;
 }
-.fm-tree a:hover {
-    background: var(--brand-soft);
-    color: var(--brand);
+.fm-tree-link:hover {
     text-decoration: none;
+    color: var(--brand);
 }
-.fm-tree li.here > a {
-    background: var(--brand-soft);
+.fm-tree-link.active {
     color: var(--brand);
     font-weight: 800;
-    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.fm-tree-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.fm-tree-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* کنترل باز و بسته بودن پوشه‌ها */
+.fm-tree-node.is-closed > ul {
+    display: none !important;
+}
+.fm-tree-node.is-closed > .fm-tree-row .fm-tree-toggle-btn {
+    transform: rotate(90deg);
+}
+.fm-tree-node.is-open > ul {
+    display: grid !important;
+}
+.fm-tree-node.is-open > .fm-tree-row .fm-tree-toggle-btn {
+    transform: rotate(0deg);
 }
 .fm-tree .cnt-badge {
     font-size: 11px;
     margin-inline-start: auto;
-    opacity: .75;
+    opacity: .8;
     background: rgba(0,0,0,0.06);
-    padding: 1px 6px;
+    padding: 1px 7px;
     border-radius: 999px;
+    font-weight: 700;
 }
 [data-theme="dark"] .fm-tree .cnt-badge {
     background: rgba(255,255,255,0.08);

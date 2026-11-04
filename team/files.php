@@ -245,7 +245,7 @@ $segments = $rel === '' ? [] : explode('/', $rel);
 <!-- نوار ابزار و ناوبری مسیر -->
 <div class="fm-topbar">
     <div class="fm-crumbs">
-        <a href="files.php" title="پوشه ریشه"><?= app_icon('files', '', 14) ?><span>processes</span></a>
+        <a href="files.php" title="پوشه فرآیندها"><?= app_icon('files', '', 14) ?><span>فرایند</span></a>
         <?php
         $acc = '';
         foreach ($segments as $i => $seg):
@@ -294,7 +294,14 @@ $segments = $rel === '' ? [] : explode('/', $rel);
     <aside class="fm-sidebar">
         <div class="fm-sidebar-title">
             <span style="display:inline-flex;align-items:center;gap:6px"><?= app_icon('files', '', 15) ?> پوشه‌های فرآیندها</span>
-            <a href="files.php" title="رفتن به ریشه" style="font-size:11.5px;color:var(--brand);font-weight:700">ریشه</a>
+            <div style="display:inline-flex;align-items:center;gap:4px">
+                <button type="button" class="btn btn-ghost btn-xs" style="padding:2px 7px;font-size:11px" onclick="fmExpandAllTrees(true)" title="باز کردن همه پوشه‌ها">
+                    باز
+                </button>
+                <button type="button" class="btn btn-ghost btn-xs" style="padding:2px 7px;font-size:11px" onclick="fmExpandAllTrees(false)" title="بستن همه پوشه‌ها">
+                    بستن
+                </button>
+            </div>
         </div>
         <?php if (!$tree): ?>
             <div class="empty" style="padding:20px 10px"><p style="font-size:12px;margin:0">پوشه‌ای وجود ندارد.</p></div>
@@ -302,22 +309,43 @@ $segments = $rel === '' ? [] : explode('/', $rel);
             <ul class="fm-tree">
             <?php
             $renderTree = function (array $nodes) use (&$renderTree, $rel): void {
-                foreach ($nodes as $n): ?>
-                    <li class="<?= $n['rel'] === $rel ? 'here' : '' ?>">
-                        <a href="files.php?dir=<?= e(rawurlencode($n['rel'])) ?>" title="<?= e($n['name']) ?>">
-                            <?= app_icon('files', '', 13) ?>
-                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($n['name']) ?></span>
-                            <span class="cnt-badge"><?= farsi_num((int)$n['files']) ?></span>
-                        </a>
-                        <?php if ($n['children']): ?>
-                            <ul>
-                                <?php foreach ($n['children'] as $c): ?>
-                                    <li class="<?= $c['rel'] === $rel ? 'here' : '' ?>">
-                                        <a href="files.php?dir=<?= e(rawurlencode($c['rel'])) ?>" title="<?= e($c['name']) ?>">
-                                            <?= app_icon('processes', '', 13) ?>
-                                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($c['name']) ?></span>
-                                            <span class="cnt-badge"><?= farsi_num((int)$c['files']) ?></span>
-                                        </a>
+                foreach ($nodes as $n):
+                    $hasChildren = !empty($n['children']);
+                    $isHere = ($n['rel'] === $rel);
+                    $isDescendantActive = ($rel !== '' && str_starts_with($rel . '/', $n['rel'] . '/'));
+                    $isOpen = $isHere || $isDescendantActive;
+                ?>
+                    <li class="fm-tree-node <?= $hasChildren ? ($isOpen ? 'is-open' : 'is-closed') : '' ?>">
+                        <div class="fm-tree-row <?= $isHere ? 'is-active' : '' ?>">
+                            <?php if ($hasChildren): ?>
+                                <button type="button" class="fm-tree-toggle-btn" onclick="fmToggleNode(this, event)" title="باز و بستن پوشه" aria-label="تغییر وضعیت پوشه">
+                                    <?= app_icon('chevron_down', '', 11) ?>
+                                </button>
+                            <?php else: ?>
+                                <span class="fm-tree-toggle-spacer"></span>
+                            <?php endif; ?>
+
+                            <a href="files.php?dir=<?= e(rawurlencode($n['rel'])) ?>" class="fm-tree-link <?= $isHere ? 'active' : '' ?>" title="<?= e($n['name']) ?>">
+                                <span class="fm-tree-icon"><?= $hasChildren ? app_icon('files', '', 14) : app_icon('processes', '', 14) ?></span>
+                                <span class="fm-tree-name"><?= e($n['name']) ?></span>
+                                <span class="cnt-badge"><?= farsi_num((int)$n['files']) ?></span>
+                            </a>
+                        </div>
+
+                        <?php if ($hasChildren): ?>
+                            <ul class="fm-tree-sub">
+                                <?php foreach ($n['children'] as $c):
+                                    $cHere = ($c['rel'] === $rel);
+                                ?>
+                                    <li class="fm-tree-node">
+                                        <div class="fm-tree-row <?= $cHere ? 'is-active' : '' ?>">
+                                            <span class="fm-tree-toggle-spacer" style="width:14px"></span>
+                                            <a href="files.php?dir=<?= e(rawurlencode($c['rel'])) ?>" class="fm-tree-link <?= $cHere ? 'active' : '' ?>" title="<?= e($c['name']) ?>">
+                                                <span class="fm-tree-icon"><?= app_icon('processes', '', 13) ?></span>
+                                                <span class="fm-tree-name"><?= e($c['name']) ?></span>
+                                                <span class="cnt-badge"><?= farsi_num((int)$c['files']) ?></span>
+                                            </a>
+                                        </div>
                                     </li>
                                 <?php endforeach; ?>
                             </ul>
@@ -707,6 +735,37 @@ function openDeleteDirModal(name, nonEmpty) {
     if (forceCheck) forceCheck.checked = false;
 
     openFmModal('fmDeleteDirModal');
+}
+
+// باز و بسته کردن پوشه‌های درخت دایرکتوری
+function fmToggleNode(btn, e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const node = btn.closest('.fm-tree-node');
+    if (!node) return;
+    if (node.classList.contains('is-closed')) {
+        node.classList.remove('is-closed');
+        node.classList.add('is-open');
+    } else {
+        node.classList.remove('is-open');
+        node.classList.add('is-closed');
+    }
+}
+
+// گسترش یا بستن همه پوشه‌ها
+function fmExpandAllTrees(open) {
+    document.querySelectorAll('.fm-tree-node').forEach(node => {
+        if (!node.querySelector('ul')) return;
+        if (open) {
+            node.classList.remove('is-closed');
+            node.classList.add('is-open');
+        } else {
+            node.classList.remove('is-open');
+            node.classList.add('is-closed');
+        }
+    });
 }
 
 // فیلتر سریع لحظه‌ای فایل‌ها و پوشه‌ها
