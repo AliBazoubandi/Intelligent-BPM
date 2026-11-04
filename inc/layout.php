@@ -208,7 +208,6 @@ function app_footer(): void
 function team_header(array $id, string $active, string $pageTitle): void
 {
     $basicsChildren = [
-        'basics_chart' => ['basics_chart.php', 'چارت سازمانی'],
         'basics_bale' => ['basics_bale.php', 'پیام‌رسان بله'],
         'basics_companies' => ['basics_companies.php', 'ایجاد شرکت'],
         'basics_categories' => ['basics_categories.php', 'دسته فرآیند'],
@@ -392,6 +391,63 @@ function team_header(array $id, string $active, string $pageTitle): void
 <script>
 (function() {
     let notifiedIds = new Set();
+
+    // Read dismissed notification IDs from localStorage so they persist across tabs and page navigation
+    function getDismissedSet() {
+        try {
+            const raw = localStorage.getItem('robinflow_dismissed_notifs');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    return new Set(arr.map(Number));
+                }
+            }
+        } catch (e) {}
+        return new Set();
+    }
+
+    let dismissedSet = getDismissedSet();
+
+    window.dismissHermesNotif = function(notifId, toastEl) {
+        const nid = parseInt(notifId);
+        if (!nid) return;
+
+        // Immediately add to sets so no navigation or polling can pop it up again
+        dismissedSet.add(nid);
+        notifiedIds.add(nid);
+        try {
+            const arr = Array.from(dismissedSet).slice(-200);
+            localStorage.setItem('robinflow_dismissed_notifs', JSON.stringify(arr));
+        } catch (e) {}
+
+        // Smooth visual dismissal
+        if (toastEl) {
+            toastEl.style.opacity = '0';
+            toastEl.style.transform = 'translateY(12px) scale(0.96)';
+            setTimeout(() => {
+                if (toastEl.parentElement) toastEl.remove();
+            }, 250);
+        }
+
+        // Notify server to mark notification as read in database
+        fetch('<?= BASE_URL ?>/team/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+            .then(r => r.json())
+            .then(data => {
+                if (data && typeof data.unread_count !== 'undefined') {
+                    const badge = document.getElementById('notifBadge');
+                    if (badge) {
+                        if (data.unread_count > 0) {
+                            badge.style.display = 'flex';
+                            badge.textContent = data.unread_count;
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
+                }
+            })
+            .catch(() => {});
+    };
+
     function pollHermesAlerts() {
         fetch('<?= BASE_URL ?>/team/notifications.php?check_unread=1')
             .then(r => r.json())
@@ -408,7 +464,7 @@ function team_header(array $id, string $active, string $pageTitle): void
                 if (data.notifications && data.notifications.length > 0) {
                     data.notifications.forEach(n => {
                         const nid = parseInt(n.ID);
-                        if (!notifiedIds.has(nid)) {
+                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid)) {
                             notifiedIds.add(nid);
                             showHermesToast(n);
                         }
@@ -421,28 +477,37 @@ function team_header(array $id, string $active, string $pageTitle): void
     function showHermesToast(n) {
         const container = document.getElementById('hermesToastContainer');
         if (!container) return;
+        const nid = parseInt(n.ID);
         const toast = document.createElement('div');
-        toast.style.cssText = 'pointer-events:auto;background:#0f172a;color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 12px 28px -5px rgba(0,0,0,0.35);border:1px solid #334155;display:flex;flex-direction:column;gap:6px;font-family:inherit;font-size:13px;transition:all 0.3s ease;animation:slideIn 0.3s ease-out;';
+        toast.className = 'hermes-toast-item';
+        toast.style.cssText = 'pointer-events:auto;background:#0f172a;color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 12px 28px -5px rgba(0,0,0,0.35);border:1px solid #334155;display:flex;flex-direction:column;gap:6px;font-family:inherit;font-size:13px;transition:opacity 0.25s ease, transform 0.25s ease;animation:slideIn 0.3s ease-out;';
         
         let linkHtml = '';
         if (n.Link) {
-            linkHtml = `<a href="${n.Link}" target="_blank" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:5px 12px;border-radius:6px;text-decoration:none;font-size:11.5px;font-weight:bold">مشاهده و دانلود سند PDF ←</a>`;
+            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">مشاهده و دانلود سند PDF ←</a>`;
         }
         
         toast.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                 <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px">🤖 ${n.Title}</span>
-                <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;line-height:1">×</button>
+                <button type="button" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" title="بستن">×</button>
             </div>
             ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${n.Body}</div>` : ''}
             ${linkHtml}
         `;
         container.appendChild(toast);
-        setTimeout(() => { if (toast.parentElement) toast.remove(); }, 14000);
+        // Automatically hide visually after 16 seconds if user doesn't touch it
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(12px) scale(0.96)';
+                setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
+            }
+        }, 16000);
     }
 
     setInterval(pollHermesAlerts, 8000);
-    setTimeout(pollHermesAlerts, 2000);
+    setTimeout(pollHermesAlerts, 1500);
 })();
 </script>
 <main class="app-main">

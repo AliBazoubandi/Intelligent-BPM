@@ -40,6 +40,34 @@ if (isset($_GET['check_unread'])) {
     exit;
 }
 
+/* ---------- خروجی AJAX برای علامت‌گذاری اعلان به عنوان خوانده‌شده هنگام بستن یا کلیک روی PDF ---------- */
+if (isset($_REQUEST['mark_read_ajax'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = current_identity('team') ?? current_identity('user');
+    if (!$id || empty($id['id'])) {
+        echo json_encode(['ok' => false]);
+        exit;
+    }
+    $db = app_db();
+    $tid = (int)$id['id'];
+    $notifId = (int)($_REQUEST['id'] ?? 0);
+    if ($notifId > 0) {
+        $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE ID = ? AND (TargetTeamID = ? OR TargetTeamID IS NULL OR TargetPersonnelID = ?)");
+        $st->bind_param('iii', $notifId, $tid, $tid);
+        $st->execute();
+        $st->close();
+    }
+
+    $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0");
+    $cntSt->bind_param('i', $tid);
+    $cntSt->execute();
+    $unreadCount = (int)($cntSt->get_result()->fetch_assoc()['c'] ?? 0);
+    $cntSt->close();
+
+    echo json_encode(['ok' => true, 'unread_count' => $unreadCount]);
+    exit;
+}
+
 $id = require_area('team');
 $db = app_db();
 $tid = (int)$id['id'];

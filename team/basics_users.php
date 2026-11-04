@@ -98,7 +98,6 @@ $csrf = csrf_token();
         <button class="btn btn-sm">فیلتر</button>
     </form>
     <div style="display:flex;gap:8px">
-        <a class="btn btn-sm btn-ghost" href="basics_chart.php"><?= app_icon('basics', '', 14) ?> چارت سازمانی</a>
         <a class="btn btn-sm" href="basics_user_new.php">＋ کاربر جدید</a>
     </div>
 </div>

@@ -34,16 +34,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
 
     if ($action === 'test_send') {
-        $testChatId = trim((string)($_POST['test_chat_id'] ?? ''));
-        $testText = trim((string)($_POST['test_text'] ?? ''));
+        $testPhone = trim((string)($_POST['test_phone'] ?? $_POST['test_chat_id'] ?? ''));
+        $testText  = trim((string)($_POST['test_text'] ?? ''));
+        $testLink  = trim((string)($_POST['test_link'] ?? ''));
 
-        if ($testChatId === '' || $testText === '') {
-            $error = 'شناسه/شماره تماس بله و متن پیام تست الزامی است.';
+        if ($testPhone === '' || $testText === '') {
+            $error = 'شماره تماس دریافت‌کننده و متن پیام تست الزامی است.';
         } else {
-            $res = bale_send_message($testChatId, $testText, [
+            $res = bale_send_message($testPhone, $testText, [
                 'recipient_name'     => 'تست کاربری',
                 'recipient_position' => 'آزمایش وب‌سرویس',
-            ]);
+                'phone'              => $testPhone,
+                'link'               => $testLink,
+            ], $testLink ?: null);
             $testResult = $res;
             if ($res['success']) {
                 $notice = 'پیام آزمایشی با موفقیت به وب‌سرویس بله ارسال شد (کد پاسخ: ' . $res['http_code'] . ').';
@@ -106,11 +109,6 @@ $csrf = csrf_token();
         <h1 style="font-size:18px;margin:0 0 4px">تنظیمات و مانیتورینگ پیام‌رسان بله (Bale)</h1>
         <div class="sub">ارسال خودکار اعلان‌های تغییر فرآیند به متولیان و مخاطبان اثرپذیر از طریق وب‌سرویس فعال بله</div>
     </div>
-    <div>
-        <a class="btn btn-sm btn-ghost" href="basics_chart.php">
-            <?= app_icon('basics', '', 14) ?> بازگشت به چارت سازمانی
-        </a>
-    </div>
 </div>
 
 <!-- کارت وضعیت و راهنمای اتصال -->
@@ -121,6 +119,16 @@ $csrf = csrf_token();
             <tr>
                 <td style="color:var(--muted);width:140px">آدرس وب‌سرویس (API):</td>
                 <td><code class="num-ltr" style="font-size:12.5px;background:var(--bg);padding:3px 7px;border-radius:6px"><?= e(BALE_API_URL) ?></code></td>
+            </tr>
+            <tr>
+                <td style="color:var(--muted)">کلید امنیتی (X-API-Key):</td>
+                <td>
+                    <?php if (!empty(BALE_API_KEY)): ?>
+                        <span class="badge badge-active">تنظیم‌شده</span>
+                    <?php else: ?>
+                        <span class="badge" style="color:var(--muted)">بدون کلید / مقدار پیش‌فرض</span>
+                    <?php endif; ?>
+                </td>
             </tr>
             <tr>
                 <td style="color:var(--muted)">وضعیت ماژول:</td>
@@ -137,8 +145,8 @@ $csrf = csrf_token();
                 <td><span class="num-ltr"><?= farsi_num(BALE_TIMEOUT) ?></span> ثانیه</td>
             </tr>
             <tr>
-                <td style="color:var(--muted)">قالب بدنه پیام:</td>
-                <td><span style="font-size:12px;color:var(--muted)">سازگار با انواع فیلدهای <code>chat_id</code>، <code>text</code>، <code>to</code>، <code>message</code> و <code>phone</code></span></td>
+                <td style="color:var(--muted)">قالب درخواست:</td>
+                <td><span style="font-size:12px;color:var(--muted)">ارسال به صورت <code>multipart/form-data</code> با فیلدهای <code>phone</code>, <code>message</code>, <code>link</code>, <code>attachment</code></span></td>
             </tr>
         </table>
     </div>
@@ -151,13 +159,18 @@ $csrf = csrf_token();
             <input type="hidden" name="action" value="test_send">
 
             <label class="field" style="margin-bottom:10px">
-                <span class="field-label">شناسه کاربری، چت‌آیدی یا شماره تماس در بله</span>
-                <input type="text" name="test_chat_id" required placeholder="مثلاً 123456789 یا 0912..." class="num-ltr" value="<?= e($_POST['test_chat_id'] ?? '') ?>" style="text-align:left">
+                <span class="field-label">شماره تلفن دریافت‌کننده (phone)</span>
+                <input type="text" name="test_phone" required placeholder="مثلاً 09123456789" class="num-ltr" value="<?= e($_POST['test_phone'] ?? $_POST['test_chat_id'] ?? '') ?>" style="text-align:left">
+            </label>
+
+            <label class="field" style="margin-bottom:10px">
+                <span class="field-label">متن پیام (message)</span>
+                <textarea name="test_text" rows="2" required placeholder="سلام، این یک پیام آزمایشی از سامانه رابین‌فلو است."><?= e($_POST['test_text'] ?? 'سلام، این یک پیام آزمایشی اتصال موفق سامانه رابین‌فلو به پیام‌رسان بله است.') ?></textarea>
             </label>
 
             <label class="field" style="margin-bottom:12px">
-                <span class="field-label">متن پیام تست</span>
-                <textarea name="test_text" rows="2" required placeholder="سلام، این یک پیام آزمایشی از سامانه رابین‌فلو است."><?= e($_POST['test_text'] ?? 'سلام، این یک پیام آزمایشی اتصال موفق سامانه رابین‌فلو به پیام‌رسان بله است.') ?></textarea>
+                <span class="field-label">لینک پیوست اختیاری (link)</span>
+                <input type="url" name="test_link" placeholder="https://example.com/process/123" class="num-ltr" value="<?= e($_POST['test_link'] ?? '') ?>" style="text-align:left">
             </label>
 
             <button type="submit" class="btn btn-sm">

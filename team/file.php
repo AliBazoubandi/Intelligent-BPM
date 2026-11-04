@@ -422,14 +422,9 @@ $currentAudType = $proc['AudienceType'] ?? 'all_company';
 
 <!-- بخش ۱: متولی فرآیند از چارت سازمانی -->
 <div class="card">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-        <div>
-            <h2 style="margin:0 0 4px">👤 متولی فرآیند از چارت سازمانی (Process Owner)</h2>
-            <div style="font-size:13px;color:var(--muted)">این فرآیند به کدام سمت در چارت سازمانی تعلق دارد؟ سیستم به صورت خودکار شاغل فعلی این سمت را شناسایی کرده و هنگام تغییر به وی پیام می‌دهد.</div>
-        </div>
-        <a href="basics_chart.php" class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center;gap:6px">
-            <?= app_icon('basics', '', 14) ?> مشاهده و ویرایش چارت سازمانی
-        </a>
+    <div style="margin-bottom:14px">
+        <h2 style="margin:0 0 4px">👤 متولی فرآیند از چارت سازمانی (Process Owner)</h2>
+        <div style="font-size:13px;color:var(--muted)">این فرآیند به کدام سمت سازمانی تعلق دارد؟ سیستم به صورت خودکار شاغل فعلی این سمت را شناسایی کرده و هنگام تغییر به وی پیام می‌دهد.</div>
     </div>
 
     <div style="background:var(--bg);padding:14px 18px;border-radius:12px;border:1px solid var(--line);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
