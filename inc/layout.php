@@ -48,6 +48,11 @@ function user_header(array $id, string $active, string $pageTitle): void
             </a>
 
             <div class="header-actions">
+                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
+                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
+                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
+                </button>
+
                 <div class="header-search-wrap">
                     <form class="header-search" method="get" action="search.php">
                         <span class="header-search-ico"><?= app_icon('search', '', 15) ?></span>
@@ -55,11 +60,6 @@ function user_header(array $id, string $active, string $pageTitle): void
                         <kbd class="search-kbd" title="کلید میانبر فوکوس جستجو">Ctrl K</kbd>
                     </form>
                 </div>
-
-                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
-                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
-                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
-                </button>
 
                 <div class="user-chip-compact" id="userChipCompact">
                     <button type="button" class="user-chip-btn" id="userMenuBtn" aria-label="مشخصات کاربر" aria-expanded="false">
@@ -255,6 +255,16 @@ function team_header(array $id, string $active, string $pageTitle): void
             </a>
 
             <div class="header-actions">
+                <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها">
+                    <?= app_icon('bot', '', 17) ?>
+                    <span id="notifBadge" class="notif-badge" style="display:<?= $notifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($notifCount) ?></span>
+                </a>
+
+                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
+                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
+                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
+                </button>
+
                 <div class="header-search-wrap">
                     <form class="header-search" method="get" action="processes.php">
                         <span class="header-search-ico"><?= app_icon('search', '', 15) ?></span>
@@ -262,16 +272,6 @@ function team_header(array $id, string $active, string $pageTitle): void
                         <kbd class="search-kbd" title="کلید میانبر فوکوس جستجو">Ctrl K</kbd>
                     </form>
                 </div>
-
-                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
-                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
-                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
-                </button>
-
-                <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها">
-                    <?= app_icon('bot', '', 17) ?>
-                    <span id="notifBadge" class="notif-badge" style="display:<?= $notifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($notifCount) ?></span>
-                </a>
 
                 <div class="user-chip-compact" id="userChipCompact">
                     <button type="button" class="user-chip-btn" id="userMenuBtn" aria-label="مشخصات تیم" aria-expanded="false">

@@ -42,14 +42,14 @@
 html[data-theme="dark"],
 [data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0b0f19;
-    --card: #131b2e;
-    --ink: #f1f5f9;
+    --bg: #0e1322;
+    --card: #151d32;
+    --ink: #f8fafc;
     --muted: #94a3b8;
-    --line: #222f4b;
-    --brand: #4f7df5;
-    --brand-dark: #7b9ff9;
-    --brand-soft: rgba(79, 125, 245, 0.16);
+    --line: #263350;
+    --brand: #3b82f6;
+    --brand-dark: #60a5fa;
+    --brand-soft: rgba(59, 130, 246, 0.16);
     --accent: #a78bfa;
     --ok: #22c55e;
     --ok-soft: rgba(34, 197, 94, 0.16);
@@ -59,8 +59,8 @@ html[data-theme="dark"],
     --danger-soft: rgba(239, 68, 68, 0.16);
     --info: #38bdf8;
     --info-soft: rgba(56, 189, 248, 0.16);
-    --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-    --header-grad: linear-gradient(135deg, #091227 0%, #0f1f44 55%, #162c5e 100%);
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    --header-grad: linear-gradient(135deg, #0f2452 0%, #153476 55%, #1b459c 100%);
 }
 
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .team-theme,
@@ -70,20 +70,20 @@ html[data-theme="dark"] .team-theme,
     --brand: #10b981;
     --brand-dark: #34d399;
     --brand-soft: rgba(16, 185, 129, 0.16);
-    --header-grad: linear-gradient(135deg, #041f18 0%, #08382c 55%, #0d4e3e 100%);
+    --header-grad: linear-gradient(135deg, #063c2f 0%, #0a5240 55%, #0e6952 100%);
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])):not([data-theme="light"]) {
         color-scheme: dark;
-        --bg: #0b0f19;
-        --card: #131b2e;
-        --ink: #f1f5f9;
+        --bg: #0e1322;
+        --card: #151d32;
+        --ink: #f8fafc;
         --muted: #94a3b8;
-        --line: #222f4b;
-        --brand: #4f7df5;
-        --brand-dark: #7b9ff9;
-        --brand-soft: rgba(79, 125, 245, 0.16);
+        --line: #263350;
+        --brand: #3b82f6;
+        --brand-dark: #60a5fa;
+        --brand-soft: rgba(59, 130, 246, 0.16);
         --accent: #a78bfa;
         --ok: #22c55e;
         --ok-soft: rgba(34, 197, 94, 0.16);
@@ -93,15 +93,15 @@ html[data-theme="dark"] .team-theme,
         --danger-soft: rgba(239, 68, 68, 0.16);
         --info: #38bdf8;
         --info-soft: rgba(56, 189, 248, 0.16);
-        --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-        --header-grad: linear-gradient(135deg, #091227 0%, #0f1f44 55%, #162c5e 100%);
+        --shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+        --header-grad: linear-gradient(135deg, #0f2452 0%, #153476 55%, #1b459c 100%);
     }
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])):not([data-theme="light"]) .team-theme,
     .team-theme:not([data-theme="light"]) {
         --brand: #10b981;
         --brand-dark: #34d399;
         --brand-soft: rgba(16, 185, 129, 0.16);
-        --header-grad: linear-gradient(135deg, #041f18 0%, #08382c 55%, #0d4e3e 100%);
+        --header-grad: linear-gradient(135deg, #063c2f 0%, #0a5240 55%, #0e6952 100%);
     }
 }
 
@@ -131,7 +131,7 @@ a:hover { text-decoration: underline; }
     position: relative;
     z-index: 100;
 }
-.header-inner { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+.header-inner { max-width: 1260px; margin: 0 auto; padding: 0 20px; }
 
 .header-top {
     display: flex;
@@ -554,35 +554,38 @@ a:hover { text-decoration: underline; }
     color: var(--danger);
 }
 
-/* منوی ردیفی با آیکون‌های وکتور هماهنگ */
+/* منوی ردیفی با آیکون‌های وکتور هماهنگ — همه تب‌ها در یک خط */
 .header-nav {
     display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    overflow: visible;
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: visible;
     padding-bottom: 0;
     margin-top: 4px;
     position: relative;
     z-index: 10;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 .header-nav::-webkit-scrollbar { display: none; }
 .nav-item {
-    color: rgba(255,255,255,.86);
-    font-size: 13.5px;
+    color: rgba(255,255,255,.88);
+    font-size: 13px;
     font-weight: 600;
-    padding: 10px 16px 12px;
-    border-radius: 12px 12px 0 0;
+    padding: 8px 11px 10px;
+    border-radius: 10px 10px 0 0;
     white-space: nowrap;
     position: relative;
     transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background .18s ease, color .18s ease, box-shadow .2s ease;
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     text-decoration: none;
-    will-change: transform;
+    flex-shrink: 0;
 }
 .nav-item .tab-icon {
-    opacity: .9;
+    opacity: .92;
     flex-shrink: 0;
 }
 .nav-item:not(.active):hover {
@@ -601,6 +604,25 @@ a:hover { text-decoration: underline; }
 .nav-item.active .tab-icon {
     stroke: var(--brand);
     opacity: 1;
+}
+
+/* در حالت تیره: تب فعال هرگز مشکی نیست! شیشه‌ای، درخشان و دارای خط نشانگر رنگی */
+[data-theme="dark"] .nav-item.active {
+    background: rgba(255, 255, 255, 0.16) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-bottom: 3px solid #60a5fa !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+[data-theme="dark"] .team-theme .nav-item.active {
+    border-bottom-color: #34d399 !important;
+}
+[data-theme="dark"] .nav-item.active .tab-icon {
+    stroke: #ffffff !important;
+    opacity: 1;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
 }
 .nav-badge {
     background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
@@ -630,7 +652,7 @@ a:hover { text-decoration: underline; }
 /* ---------------- بدنه ---------------- */
 .app-main {
     width: 100%;
-    max-width: 1180px;
+    max-width: 1260px;
     margin: 0 auto;
     padding: 22px 20px 40px;
     flex: 1;
