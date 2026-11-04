@@ -40,6 +40,10 @@ $csrf = csrf_token();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>
+(function(){try{var t=localStorage.getItem("theme-preference")||"auto";var d=t==="dark"||(t==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.setAttribute("data-theme","dark");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="dark";}else{document.documentElement.setAttribute("data-theme","light");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="light";}}catch(e){}})();
+</script>
 <title>ورود تیم فرآیند | رابین‌فلو</title>
 <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
 <link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
@@ -47,6 +51,10 @@ $csrf = csrf_token();
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
 <body class="login-body team-theme">
+<button type="button" class="login-theme-btn" id="loginThemeBtn" aria-label="تغییر تم" title="تغییر تم (شب / روز)">
+    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 17) ?></span>
+    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 17) ?></span>
+</button>
 <main class="login-card">
     <div class="login-brand">
         <div class="login-logo">
@@ -75,5 +83,20 @@ $csrf = csrf_token();
     <p class="login-alt">کاربر سازمان هستید؟ <a href="<?= USER_URL ?>/login.php">ورود کاربران</a></p>
     <p class="login-hint">راهنمای تست: <code>TP-1000</code> با رمز <code>team123</code></p>
 </main>
+<script>
+(function(){
+    var btn = document.getElementById('loginThemeBtn');
+    if(btn){
+        btn.addEventListener('click', function(){
+            var cur = document.documentElement.getAttribute('data-theme') || 'light';
+            var n = cur === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', n);
+            var m = document.querySelector('meta[name="color-scheme"]');
+            if(m) m.content = n;
+            localStorage.setItem('theme-preference', n);
+        });
+    }
+})();
+</script>
 </body>
 </html>

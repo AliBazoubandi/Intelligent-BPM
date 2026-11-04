@@ -23,6 +23,10 @@ function user_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>
+(function(){try{var t=localStorage.getItem("theme-preference")||"auto";var d=t==="dark"||(t==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.setAttribute("data-theme","dark");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="dark";}else{document.documentElement.setAttribute("data-theme","light");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="light";}}catch(e){}})();
+</script>
 <title><?= e($pageTitle) ?> | رابین‌فلو</title>
 <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
 <link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
@@ -42,31 +46,60 @@ function user_header(array $id, string $active, string $pageTitle): void
                     <small>سامانه مدیریت و بهبود فرآیندها</small>
                 </span>
             </a>
-            <div class="header-search-wrap">
-                <form class="header-search" method="get" action="search.php">
-                    <span class="header-search-ico"><?= app_icon('search', '', 16) ?></span>
-                    <input type="search" name="q" class="header-search-input" placeholder="جستجوی سریع فرآیندها…" value="<?= (isset($_GET['q']) && $active === 'search') ? e($_GET['q']) : '' ?>" autocomplete="off">
-                    <button type="submit" class="header-search-btn" title="جستجو"><span>جستجو</span></button>
-                </form>
-            </div>
-            <div class="user-chip">
-                <div class="user-avatar-wrap">
-                    <span class="avatar"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
+
+            <div class="header-actions">
+                <div class="header-search-wrap">
+                    <form class="header-search" method="get" action="search.php">
+                        <span class="header-search-ico"><?= app_icon('search', '', 15) ?></span>
+                        <input type="search" name="q" id="globalSearchInput" class="header-search-input" placeholder="جستجو در سامانه…" value="<?= (isset($_GET['q']) && $active === 'search') ? e($_GET['q']) : '' ?>" autocomplete="off">
+                        <kbd class="search-kbd" title="کلید میانبر فوکوس جستجو">Ctrl K</kbd>
+                    </form>
                 </div>
-                <div class="user-meta">
-                    <span class="user-name"><?= e($id['name']) ?></span>
-                    <span class="user-sub">
-                        <span class="code-pill"><?= e($id['code']) ?></span>
-                        <?php if (!empty($id['company'])): ?>
-                            <span class="sep">·</span>
-                            <span class="company-text"><?= e($id['company']) ?></span>
-                        <?php endif; ?>
-                    </span>
+
+                <div class="header-worker-pill" title="پردازشگر هوش مصنوعی هرمس برخط است">
+                    <span class="worker-pulse-dot"></span>
+                    <span class="worker-text">worker · برخط</span>
                 </div>
-                <a class="btn-exit" href="logout.php" title="خروج از سامانه">
-                    <?= app_icon('logout', 'exit-icon', 15) ?>
-                    <span>خروج</span>
-                </a>
+
+                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
+                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
+                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
+                </button>
+
+                <div class="user-chip-compact" id="userChipCompact">
+                    <button type="button" class="user-chip-btn" id="userMenuBtn" aria-label="مشخصات کاربر" aria-expanded="false">
+                        <span class="avatar avatar-compact"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
+                        <span class="user-name-compact"><?= e($id['name']) ?></span>
+                        <span class="user-chevron"><?= app_icon('chevron_down', '', 12) ?></span>
+                    </button>
+                    <a class="btn-exit-compact" href="logout.php" title="خروج از سامانه">
+                        <?= app_icon('logout', '', 13) ?>
+                        <span class="exit-label">خروج</span>
+                    </a>
+                    <div class="user-dropdown-menu" id="userDropdownMenu">
+                        <div class="user-dd-profile">
+                            <span class="avatar avatar-dd"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
+                            <div class="user-dd-info">
+                                <strong><?= e($id['name']) ?></strong>
+                                <span class="user-dd-sub">کد: <?= e($id['code']) ?><?= !empty($id['company']) ? ' · ' . e($id['company']) : '' ?></span>
+                            </div>
+                        </div>
+                        <div class="user-dd-divider"></div>
+                        <a href="my_changes.php" class="user-dd-link">
+                            <?= app_icon('changes', '', 14) ?>
+                            <span>تغییرات مرتبط با من</span>
+                        </a>
+                        <a href="improvements.php" class="user-dd-link">
+                            <?= app_icon('improvements', '', 14) ?>
+                            <span>بهبودهای من</span>
+                        </a>
+                        <div class="user-dd-divider"></div>
+                        <a href="logout.php" class="user-dd-link user-dd-logout">
+                            <?= app_icon('logout', '', 14) ?>
+                            <span>خروج از حساب</span>
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
         <nav class="header-nav" aria-label="منوی اصلی">
@@ -93,6 +126,83 @@ function app_footer(): void
     ?>
 </main>
 <footer class="app-foot">✨ تمام حقوق اين وبسايت مربوط به تیم هوش تجاری رهباریان رابین است. ✨</footer>
+
+<script>
+(function() {
+    // 1. Theme toggle handler (Dark / Light)
+    function applyTheme(theme) {
+        const isDark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        const meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.content = isDark ? 'dark' : 'light';
+        localStorage.setItem('theme-preference', isDark ? 'dark' : 'light');
+    }
+
+    const toggleBtn = document.getElementById('themeToggleBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        });
+    }
+
+    // React to system preference changes when user hasn't explicitly chosen
+    try {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            const saved = localStorage.getItem('theme-preference');
+            if (!saved || saved === 'auto') {
+                applyTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+    } catch(e) {}
+
+    // Listen to storage events across tabs
+    window.addEventListener('storage', function(e) {
+        if (e.key === 'theme-preference' && e.newValue) {
+            applyTheme(e.newValue);
+        }
+    });
+
+    // 2. Global search shortcut (Ctrl+K or Cmd+K)
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+            const searchInput = document.getElementById('globalSearchInput');
+            if (searchInput) {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+    });
+
+    // 3. User compact menu dropdown toggle
+    const userChip = document.getElementById('userChipCompact');
+    const userBtn = document.getElementById('userMenuBtn');
+    if (userChip && userBtn) {
+        userBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            userChip.classList.toggle('open');
+            userBtn.setAttribute('aria-expanded', userChip.classList.contains('open') ? 'true' : 'false');
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!userChip.contains(e.target)) {
+                userChip.classList.remove('open');
+                userBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                userChip.classList.remove('open');
+                userBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+})();
+</script>
 </body>
 </html>
 <?php
@@ -124,6 +234,10 @@ function team_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>
+(function(){try{var t=localStorage.getItem("theme-preference")||"auto";var d=t==="dark"||(t==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.setAttribute("data-theme","dark");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="dark";}else{document.documentElement.setAttribute("data-theme","light");var m=document.querySelector('meta[name="color-scheme"]');if(m)m.content="light";}}catch(e){}})();
+</script>
 <title><?= e($pageTitle) ?> | پنل تیم رابین‌فلو</title>
 <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
 <link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
@@ -143,37 +257,64 @@ function team_header(array $id, string $active, string $pageTitle): void
                     <small>پنل تیم مهندسی فرآیند</small>
                 </span>
             </a>
-            <div class="header-search-wrap">
-                <form class="header-search" method="get" action="processes.php">
-                    <span class="header-search-ico"><?= app_icon('search', '', 16) ?></span>
-                    <input type="search" name="q" class="header-search-input" placeholder="جستجوی فرآیندها در پنل تیم…" value="<?= (isset($_GET['q']) && $active === 'processes') ? e($_GET['q']) : '' ?>" autocomplete="off">
-                    <button type="submit" class="header-search-btn" title="جستجو"><span>جستجو</span></button>
-                </form>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px">
-                <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,0.85);border:1px solid var(--line);color:var(--text);text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:all .2s ease">
-                    <?= app_icon('bot', '', 18) ?>
-                    <span id="notifBadge" class="notif-badge" style="display:<?= $notifCount > 0 ? 'flex' : 'none' ?>;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:11px;font-weight:bold;min-width:18px;height:18px;border-radius:9px;align-items:center;justify-content:center;padding:0 4px"><?= farsi_num($notifCount) ?></span>
+
+            <div class="header-actions">
+                <div class="header-search-wrap">
+                    <form class="header-search" method="get" action="processes.php">
+                        <span class="header-search-ico"><?= app_icon('search', '', 15) ?></span>
+                        <input type="search" name="q" id="globalSearchInput" class="header-search-input" placeholder="جستجو در پنل تیم…" value="<?= (isset($_GET['q']) && $active === 'processes') ? e($_GET['q']) : '' ?>" autocomplete="off">
+                        <kbd class="search-kbd" title="کلید میانبر فوکوس جستجو">Ctrl K</kbd>
+                    </form>
+                </div>
+
+                <div class="header-worker-pill" title="پردازشگر هوش مصنوعی هرمس برخط است">
+                    <span class="worker-pulse-dot"></span>
+                    <span class="worker-text">worker · برخط</span>
+                </div>
+
+                <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
+                    <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
+                    <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
+                </button>
+
+                <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها">
+                    <?= app_icon('bot', '', 17) ?>
+                    <span id="notifBadge" class="notif-badge" style="display:<?= $notifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($notifCount) ?></span>
                 </a>
-                <div class="user-chip">
-                    <div class="user-avatar-wrap">
-                        <span class="avatar avatar-team"><?= app_icon('team', '', 18) ?></span>
-                    </div>
-                    <div class="user-meta">
-                        <span class="user-name"><?= e($id['name']) ?></span>
-                        <span class="user-sub">
-                            <span class="code-pill"><?= e($id['code']) ?></span>
-                            <?php if (!empty($id['company'])): ?>
-                                <span class="sep">·</span>
-                                <span class="company-text"><?= e($id['company']) ?></span>
-                            <?php endif; ?>
-                        </span>
-                    </div>
-                    <span class="badge badge-team">تیم فرآیند</span>
-                    <a class="btn-exit" href="logout.php" title="خروج از سامانه">
-                        <?= app_icon('logout', 'exit-icon', 15) ?>
-                        <span>خروج</span>
+
+                <div class="user-chip-compact" id="userChipCompact">
+                    <button type="button" class="user-chip-btn" id="userMenuBtn" aria-label="مشخصات تیم" aria-expanded="false">
+                        <span class="avatar avatar-compact avatar-team"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
+                        <span class="user-name-compact"><?= e($id['name']) ?></span>
+                        <span class="user-chevron"><?= app_icon('chevron_down', '', 12) ?></span>
+                    </button>
+                    <a class="btn-exit-compact" href="logout.php" title="خروج از سامانه">
+                        <?= app_icon('logout', '', 13) ?>
+                        <span class="exit-label">خروج</span>
                     </a>
+                    <div class="user-dropdown-menu" id="userDropdownMenu">
+                        <div class="user-dd-profile">
+                            <span class="avatar avatar-dd avatar-team"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
+                            <div class="user-dd-info">
+                                <strong><?= e($id['name']) ?></strong>
+                                <span class="user-dd-sub">کد تیم: <?= e($id['code']) ?><?= !empty($id['company']) ? ' · ' . e($id['company']) : '' ?></span>
+                            </div>
+                        </div>
+                        <div class="user-dd-divider"></div>
+                        <a href="notifications.php" class="user-dd-link">
+                            <?= app_icon('bot', '', 14) ?>
+                            <span>اعلان‌های هرمس</span>
+                        </a>
+                        <a href="improvements.php" class="user-dd-link">
+                            <?= app_icon('improvements', '', 14) ?>
+                            <span>لیست بهبودها</span>
+                        </a>
+                        <div class="user-dd-divider"></div>
+                        <a href="logout.php" class="user-dd-link user-dd-logout">
+                            <?= app_icon('logout', '', 14) ?>
+                            <span>خروج از حساب</span>
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
