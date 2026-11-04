@@ -74,7 +74,7 @@ while ($r = $res->fetch_assoc()) $latest[] = $r;
         <?php
         $perms = ['request' => 'ثبت درخواست', 'search' => 'جستجو', 'improve' => 'ثبت بهبود', 'approve' => 'تأیید'];
         foreach ($perms as $k => $label): $on = !empty($id['perms'][$k]); ?>
-            <span class="chip <?= $on ? 'active' : '' ?>" style="<?= $on ? '' : 'opacity:.55' ?>"><?= $label ?>: <?= $on ? 'دارد' : 'ندارد' ?></span>
+            <span class="chip <?= $on ? 'active' : 'chip-off' ?>"><?= $label ?>: <?= $on ? 'دارد' : 'ندارد' ?></span>
         <?php endforeach; ?>
     </div>
 </div>
