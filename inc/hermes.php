@@ -345,15 +345,85 @@ function hermes_evaluate_improvement(mysqli $db, int $improvementId): array
     ];
 }
 
+if (!defined('HERMES_EVAL_TIMEOUT_HOURS')) {
+    define('HERMES_EVAL_TIMEOUT_HOURS', (int)env('HERMES_EVAL_TIMEOUT_HOURS', 2));
+}
+
 /**
- * ایجاد نشان بصری (Badge) برای وضعیت رأی داور هرمس
+ * بررسی آیا ارزیابی هرمس دچار انقضای زمان انتظار (تایم‌اوت) شده است یا خیر
  */
-function hermes_badge(?string $verdict): string
+function hermes_is_timed_out(?string $verdict, ?string $createdAt): bool
 {
+    if ($verdict !== null && $verdict !== '' && $verdict !== 'pending') {
+        return false;
+    }
+    if (empty($createdAt)) {
+        return false;
+    }
+    $ts = strtotime($createdAt);
+    if (!$ts) return false;
+    $limitSeconds = (defined('HERMES_EVAL_TIMEOUT_HOURS') ? HERMES_EVAL_TIMEOUT_HOURS : 2) * 3600;
+    return (time() - $ts >= $limitSeconds);
+}
+
+/**
+ * به‌روزرسانی خودکار رکوردهای در انتظار ارزیابی که بیش از مهلت مجاز (۲ ساعت) معلق مانده‌اند
+ */
+function hermes_cleanup_stale_evaluations(mysqli $db, int $timeoutHours = 2): int
+{
+    try {
+        $st = $db->prepare(
+            "UPDATE Improvements 
+             SET AiVerdict = 'error', 
+                 AiAnalysis = JSON_OBJECT('error', 'اتمام مهلت پاسخ‌دهی هرمس پس از ۲ ساعت', 'summary', 'سرویس هوشمند هرمس در مهلت زمانی تعیین‌شده (۲ ساعت) پاسخ نداد. لطفاً با زدن دکمه تلاش مجدد، درخواست را دوباره ارسال فرمایید.'),
+                 UpdatedAt = NOW()
+             WHERE AiVerdict = 'pending' AND CreatedAt < (NOW() - INTERVAL ? HOUR)"
+        );
+        $st->bind_param('i', $timeoutHours);
+        $st->execute();
+        $affected = (int)$st->affected_rows;
+        $st->close();
+        return $affected;
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
+/**
+ * ایجاد نشان بصری (Badge) برای وضعیت رأی داور هرمس با پشتیبانی از تایم‌اوت و دکمه تلاش مجدد
+ */
+function hermes_badge(
+    ?string $verdict,
+    ?string $createdAt = null,
+    int $impId = 0,
+    bool $canRetry = false,
+    string $csrf = '',
+    string $formAction = 'improvements.php'
+): string {
+    $isTimedOut = hermes_is_timed_out($verdict, $createdAt);
+
+    if ($isTimedOut || $verdict === 'error') {
+        $out = '<div class="hermes-status-cell">';
+        $out .= '<span class="badge badge-ai-error" title="متأسفانه پاسخی از هرمس دریافت نشد (اتمام زمان انتظار یا خطا)">'
+              . app_icon('x', '', 13) . ' <span>مشکل در هرمس؛ لطفاً دوباره تلاش کنید</span></span>';
+        if ($canRetry && $impId > 0) {
+            $token = $csrf ?: csrf_token();
+            $out .= '<form method="post" action="' . e($formAction) . '" class="inline-form ai-retry-form" style="margin-top:4px">';
+            $out .= '<input type="hidden" name="csrf" value="' . e($token) . '">';
+            $out .= '<input type="hidden" name="action" value="retry_hermes">';
+            $out .= '<input type="hidden" name="imp_id" value="' . $impId . '">';
+            $out .= '<button type="submit" class="btn btn-xs btn-ai-retry" title="تلاش مجدد برای ارسال به داور هوشمند هرمس">';
+            $out .= app_icon('refresh', '', 12) . ' <span>تلاش مجدد</span>';
+            $out .= '</button>';
+            $out .= '</form>';
+        }
+        $out .= '</div>';
+        return $out;
+    }
+
     return match ($verdict) {
         'yes' => '<span class="badge badge-ai-yes" title="داور هوش مصنوعی هرمس: پیشنهاد مفید و بدون تعارض تشخیص داده شد">' . app_icon('check', '', 13) . ' <span>هرمس: تأیید (YES)</span></span>',
         'no' => '<span class="badge badge-ai-no" title="داور هوش مصنوعی هرمس: دارای تعارض، پارادوکس یا عوارض جانبی">' . app_icon('x', '', 13) . ' <span>هرمس: عدم تأیید (NO)</span></span>',
-        'error' => '<span class="badge badge-ai-error" title="خطا در ارتباط با سرویس هرمس">' . app_icon('refresh', '', 13) . ' <span>هرمس: نیاز به بررسی</span></span>',
         default => '<span class="badge badge-ai-pending" title="در صف پردازش داور هوشمند هرمس">' . app_icon('refresh', 'ai-spin', 13) . ' <span>هرمس: در صف ارزیابی...</span></span>',
     };
 }
@@ -361,8 +431,25 @@ function hermes_badge(?string $verdict): string
 /**
  * تبدیل تحلیل JSON هرمس به یک جعبه نمایش زیبا و خوانا
  */
-function hermes_render_card(?string $aiVerdict, ?string $aiAnalysis, ?string $aiEvaluatedAt, int $impId, bool $canReevaluate = true): string
+function hermes_render_card(?string $aiVerdict, ?string $aiAnalysis, ?string $aiEvaluatedAt, int $impId, bool $canReevaluate = true, ?string $createdAt = null): string
 {
+    $isTimedOut = hermes_is_timed_out($aiVerdict, $createdAt);
+    if ($isTimedOut || $aiVerdict === 'error') {
+        $html = '<div class="ai-box ai-box-error">';
+        $html .= '<div class="ai-box-head"><span style="display:inline-flex;align-items:center;gap:7px">' . app_icon('bot', '', 18) . '<b>داور فرآیند: هوش مصنوعی هرمس</b></span>' . hermes_badge('error', null, $impId, false) . '</div>';
+        $html .= '<p class="ai-box-msg" style="margin:8px 0;font-size:13px;color:#b91c1c">متأسفانه در مهلت مقرر (۲ ساعت) پاسخی از سرویس هوش مصنوعی هرمس دریافت نشد یا با وقفه مواجه شد. لطفاً با زدن دکمه زیر، درخواست ارزیابی را مجدداً ارسال فرمایید.</p>';
+        if ($canReevaluate) {
+            $html .= '<form method="post" class="inline-form" style="margin-top:8px">';
+            $html .= '<input type="hidden" name="csrf" value="' . e(csrf_token()) . '">';
+            $html .= '<input type="hidden" name="action" value="retry_hermes">';
+            $html .= '<input type="hidden" name="imp_id" value="' . $impId . '">';
+            $html .= '<button class="btn btn-sm btn-ai-retry" style="display:inline-flex;align-items:center;gap:6px">' . app_icon('refresh', '', 14) . '<span>ارسال مجدد به داور هرمس (تلاش مجدد)</span></button>';
+            $html .= '</form>';
+        }
+        $html .= '</div>';
+        return $html;
+    }
+
     if (!$aiVerdict || $aiVerdict === 'pending') {
         $html = '<div class="ai-box ai-box-pending">';
         $html .= '<div class="ai-box-head"><span style="display:inline-flex;align-items:center;gap:7px">' . app_icon('bot', '', 18) . '<b>داور فرآیند: هوش مصنوعی هرمس</b></span>' . hermes_badge($aiVerdict) . '</div>';

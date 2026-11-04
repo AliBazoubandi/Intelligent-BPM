@@ -49,6 +49,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('error', 'فقط تیم مسئول فرآیند اجازه پاسخگویی یا ارزیابی هرمس را دارد.');
             header('Location: ' . $redirectUrl);
             exit;
+        } elseif ($action === 'retry_hermes') {
+            $st = $db->prepare(
+                "UPDATE Improvements 
+                 SET AiVerdict = 'pending', 
+                     AiAnalysis = NULL, 
+                     AiEvaluatedAt = NULL, 
+                     CreatedAt = NOW(), 
+                     UpdatedAt = NOW() 
+                 WHERE ID = ?"
+            );
+            $st->bind_param('i', $impId);
+            $st->execute();
+            $st->close();
+
+            hermes_dispatch_async_eval($impId);
+            flash_set('ok', 'ارزیابی مجدد هرمس برای این پیشنهاد ارسال شد.');
+            header('Location: ' . $redirectUrl);
+            exit;
         } elseif ($action === 'hermes_eval') {
             @set_time_limit(90);
             $res = hermes_evaluate_improvement($db, $impId);
@@ -159,7 +177,7 @@ if ($impId > 0) {
         <?php endif; ?>
         <?php if ($imp['Description']): ?><p style="background:var(--brand-soft);border-radius:12px;padding:12px 16px;font-size:13.5px"><?= nl2br(e($imp['Description'])) ?></p><?php endif; ?>
 
-        <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, $isOwnerTeam) ?>
+        <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, $isOwnerTeam, $imp['CreatedAt'] ?? null) ?>
 
         <div class="thread">
             <?php if (!$msgs): ?><div class="empty"><span class="ico"><?= app_icon('discussion', '', 36) ?></span><p>هنوز پیامی در این گفتگو ثبت نشده است.</p></div><?php endif; ?>
@@ -223,7 +241,7 @@ while ($r = $res->fetch_assoc()) $threads[] = $r;
                 <tr>
                     <td><span class="title"><?= e($t['Title']) ?></span></td>
                     <td><?= e($t['ProcName']) ?></td>
-                    <td><?= hermes_badge($t['AiVerdict'] ?? 'pending') ?></td>
+                    <td><?= hermes_badge($t['AiVerdict'] ?? 'pending', $t['CreatedAt'] ?? null, (int)$t['ID'], false) ?></td>
                     <td><?= e(trim((string)$t['ReqName'] . ' ' . (string)$t['ReqFamily']) ?: '—') ?></td>
                     <td><span class="badge badge-<?= e($t['Status']) ?>"><?= status_label($t['Status']) ?></span></td>
                     <td><?= (int)$t['Replies'] ?></td>

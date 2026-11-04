@@ -8,6 +8,9 @@ require_once __DIR__ . '/../inc/hermes.php';
 $id = require_area('user');
 $db = app_db();
 
+// به‌روزرسانی خودکار مواردی که بیش از ۲ ساعت در صف مانده‌اند به حالت خطا
+hermes_cleanup_stale_evaluations($db);
+
 $canSubmit = true; // All users currently have permission to suggest optimizations
 $notice = '';
 $error = '';
@@ -21,8 +24,47 @@ if ($flash) {
     }
 }
 
-/* ثبت بهبود جدید */
+/* پردازش درخواست‌های ارسالی */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string)($_POST['action'] ?? 'create');
+
+    if ($action === 'retry_hermes') {
+        if (!csrf_check($_POST['csrf'] ?? null)) {
+            flash_set('error', 'اعتبار صفحه منقضی شده؛ دوباره تلاش کنید.');
+        } else {
+            $impId = (int)($_POST['imp_id'] ?? 0);
+            $uid = (int)$id['id'];
+
+            $check = $db->prepare("SELECT ID FROM Improvements WHERE ID = ? AND requester_type = 'user' AND requester_id = ?");
+            $check->bind_param('ii', $impId, $uid);
+            $check->execute();
+            $ok = (bool)$check->get_result()->fetch_assoc();
+            $check->close();
+
+            if (!$ok) {
+                flash_set('error', 'پیشنهاد مورد نظر یافت نشد یا دسترسی به آن ندارید.');
+            } else {
+                $st = $db->prepare(
+                    "UPDATE Improvements 
+                     SET AiVerdict = 'pending', 
+                         AiAnalysis = NULL, 
+                         AiEvaluatedAt = NULL, 
+                         CreatedAt = NOW(), 
+                         UpdatedAt = NOW() 
+                     WHERE ID = ?"
+                );
+                $st->bind_param('i', $impId);
+                $st->execute();
+                $st->close();
+
+                hermes_dispatch_async_eval($impId);
+                flash_set('ok', 'درخواست ارزیابی مجدد هرمس برای پیشنهاد #' . $impId . ' با موفقیت ارسال شد و در صف ارزیابی قرار گرفت.');
+            }
+        }
+        header('Location: improvements.php');
+        exit;
+    }
+
     if (!$canSubmit) {
         flash_set('error', 'شما اجازه ثبت درخواست بهبود ندارید.');
         header('Location: improvements.php');
@@ -163,7 +205,7 @@ $preselect = (int)($_GET['process'] ?? $_POST['process_id'] ?? 0);
                 <tr>
                     <td style="min-width:180px"><span class="title"><?= e($m['Title']) ?></span><?php if ($m['Description']): ?><br><span class="sub"><?= e(mb_strimwidth((string)$m['Description'], 0, 100, '…')) ?></span><?php endif; ?></td>
                     <td><a href="processes.php?id=<?= (int)$m['ProcessID'] ?>"><?= e($m['ProcName']) ?></a><br><span class="sub"><?= e($m['CatTitle']) ?></span></td>
-                    <td><?= hermes_badge($m['AiVerdict'] ?? 'pending') ?></td>
+                    <td><?= hermes_badge($m['AiVerdict'] ?? 'pending', $m['CreatedAt'] ?? null, (int)$m['ID'], true, csrf_token()) ?></td>
                     <td><span class="badge badge-<?= e($m['Status']) ?>"><?= status_label($m['Status']) ?></span></td>
                     <td><?= e(fmt_date_short($m['CreatedAt'])) ?></td>
                     <td style="min-width:160px"><?= $m['LastReply'] ? e(mb_strimwidth((string)$m['LastReply'], 0, 120, '…')) : '—' ?></td>

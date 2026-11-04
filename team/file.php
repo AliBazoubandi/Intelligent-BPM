@@ -300,7 +300,7 @@ $csrf = csrf_token();
             <?php foreach ($imps as $m): ?>
                 <tr>
                     <td><span class="title"><?= e($m['Title']) ?></span><?php if ($m['Description']): ?><br><span class="sub"><?= e(mb_strimwidth((string)$m['Description'], 0, 120, '…')) ?></span><?php endif; ?></td>
-                    <td><?= hermes_badge($m['AiVerdict'] ?? 'pending') ?></td>
+                    <td><?= hermes_badge($m['AiVerdict'] ?? 'pending', $m['CreatedAt'] ?? null, (int)$m['ID'], false) ?></td>
                     <td><?= e(trim((string)$m['ReqName'] . ' ' . (string)$m['ReqFamily']) ?: (string)$m['ReqTeamName'] ?: '—') ?></td>
                     <td><span class="badge badge-<?= e($m['Status']) ?>"><?= status_label($m['Status']) ?></span></td>
                     <td><?= e(fmt_date_short($m['CreatedAt'])) ?></td>

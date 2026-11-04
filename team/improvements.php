@@ -9,6 +9,9 @@ $id = require_area('team');
 $db = app_db();
 $tid = (int)$id['id'];
 
+// به‌روزرسانی خودکار مواردی که بیش از ۲ ساعت در صف مانده‌اند به وضعیت خطا
+hermes_cleanup_stale_evaluations($db);
+
 $notice = '';
 $error = '';
 $statusFilter = (string)($_GET['status'] ?? '');
@@ -59,6 +62,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st = $db->prepare('UPDATE Improvements SET Status = ? WHERE ID = ?');
                 $st->bind_param('si', $newSt, $impId); $st->execute(); $st->close();
                 flash_set('ok', 'وضعیت بهبود به «' . status_label($newSt) . '» تغییر کرد.');
+                header('Location: ' . $redirectUrl);
+                exit;
+            } elseif ($action === 'retry_hermes') {
+                $st = $db->prepare(
+                    "UPDATE Improvements 
+                     SET AiVerdict = 'pending', 
+                         AiAnalysis = NULL, 
+                         AiEvaluatedAt = NULL, 
+                         CreatedAt = NOW(), 
+                         UpdatedAt = NOW() 
+                     WHERE ID = ?"
+                );
+                $st->bind_param('i', $impId);
+                $st->execute();
+                $st->close();
+
+                hermes_dispatch_async_eval($impId);
+                flash_set('ok', 'ارزیابی مجدد هرمس برای پیشنهاد #' . $impId . ' با موفقیت آغاز شد و در صف قرار گرفت.');
                 header('Location: ' . $redirectUrl);
                 exit;
             } elseif ($action === 'hermes_eval') {
@@ -164,7 +185,7 @@ if ($stCount) {
                         <br><span class="sub"><?= e($m['CatTitle']) ?><?= $mine ? '' : ' · تیم دیگر' ?></span>
                     </td>
                     <td>
-                        <?= hermes_badge($m['AiVerdict'] ?? 'pending') ?>
+                        <?= hermes_badge($m['AiVerdict'] ?? 'pending', $m['CreatedAt'] ?? null, (int)$m['ID'], true, $csrf) ?>
                         <br><a class="sub" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="font-size:11.5px;display:inline-flex;align-items:center;gap:4px"><?= app_icon('search', '', 12) ?><span>مشاهده تحلیل هرمس</span></a>
                     </td>
                     <td><?= e(trim((string)$m['ReqName'] . ' ' . (string)$m['ReqFamily']) ?: ((string)$m['ReqTeamName'] ?: '—')) ?></td>

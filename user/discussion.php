@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . $redirectUrl);
         exit;
     } else {
+        $action = (string)($_POST['action'] ?? 'reply');
         $body = trim((string)($_POST['body'] ?? ''));
 
         // بررسی اینکه بهبود متعلق به این کاربر باشد
@@ -44,6 +45,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$ok) {
             flash_set('error', 'بهبود مورد نظر یافت نشد یا دسترسی به آن ندارید.');
             header('Location: improvements.php');
+            exit;
+        } elseif ($action === 'retry_hermes') {
+            $st = $db->prepare(
+                "UPDATE Improvements 
+                 SET AiVerdict = 'pending', 
+                     AiAnalysis = NULL, 
+                     AiEvaluatedAt = NULL, 
+                     CreatedAt = NOW(), 
+                     UpdatedAt = NOW() 
+                 WHERE ID = ?"
+            );
+            $st->bind_param('i', $impId);
+            $st->execute();
+            $st->close();
+
+            hermes_dispatch_async_eval($impId);
+            flash_set('ok', 'درخواست ارزیابی مجدد هرمس با موفقیت ارسال شد.');
+            header('Location: discussion.php?imp=' . $impId);
             exit;
         } elseif (mb_strlen($body) < 2) {
             flash_set('error', 'متن پیام را وارد کنید.');
@@ -124,7 +143,7 @@ $st->close();
         <p style="background:var(--brand-soft);border-radius:12px;padding:12px 16px;font-size:13.5px"><?= nl2br(e($imp['Description'])) ?></p>
     <?php endif; ?>
 
-    <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, false) ?>
+    <?= hermes_render_card($imp['AiVerdict'] ?? 'pending', $imp['AiAnalysis'] ?? null, $imp['AiEvaluatedAt'] ?? null, $impId, true, $imp['CreatedAt'] ?? null) ?>
 
     <div class="thread">
         <?php if (!$msgs): ?>

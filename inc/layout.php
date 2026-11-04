@@ -14,7 +14,6 @@ function user_header(array $id, string $active, string $pageTitle): void
     $menu = [
         'home' => ['home.php', 'خانه', 'home', null],
         'processes' => ['processes.php', 'پیمایش فرآیندها', 'processes', null],
-        'search' => ['search.php', 'جستجو', 'search', null],
         'ask' => ['ask.php', 'پرسش از فرآیندها', 'bot', null],
         'improvements' => ['improvements.php', 'بهبودهای من', 'improvements', $badges['improvements']],
         'changes' => ['changes.php', 'تغییرات مرتبط با من', 'changes', $badges['changes']],
@@ -24,7 +23,7 @@ function user_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($pageTitle) ?> | رابین‌فلو (RobinFlow)</title>
+<title><?= e($pageTitle) ?> | رابین‌فلو</title>
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -37,10 +36,17 @@ function user_header(array $id, string $active, string $pageTitle): void
                     <?= app_icon('brand', 'brand-svg', 26) ?>
                 </span>
                 <span class="brand-text">
-                    <b>رابین‌فلو <span style="font-size:12px;font-weight:400;opacity:.85">(RobinFlow)</span></b>
+                    <b>رابین‌فلو</b>
                     <small>سامانه مدیریت و بهبود فرآیندها</small>
                 </span>
             </a>
+            <div class="header-search-wrap">
+                <form class="header-search" method="get" action="search.php">
+                    <span class="header-search-ico"><?= app_icon('search', '', 16) ?></span>
+                    <input type="search" name="q" class="header-search-input" placeholder="جستجوی سریع فرآیندها…" value="<?= (isset($_GET['q']) && $active === 'search') ? e($_GET['q']) : '' ?>" autocomplete="off">
+                    <button type="submit" class="header-search-btn" title="جستجو"><span>جستجو</span></button>
+                </form>
+            </div>
             <div class="user-chip">
                 <div class="user-avatar-wrap">
                     <span class="avatar"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
@@ -116,7 +122,7 @@ function team_header(array $id, string $active, string $pageTitle): void
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($pageTitle) ?> | پنل تیم رابین‌فلو (RobinFlow)</title>
+<title><?= e($pageTitle) ?> | پنل تیم رابین‌فلو</title>
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -129,10 +135,17 @@ function team_header(array $id, string $active, string $pageTitle): void
                     <?= app_icon('brand', 'brand-svg', 26) ?>
                 </span>
                 <span class="brand-text">
-                    <b>رابین‌فلو <span style="font-size:12px;font-weight:400;opacity:.85">(RobinFlow)</span></b>
+                    <b>رابین‌فلو</b>
                     <small>پنل تیم مهندسی فرآیند</small>
                 </span>
             </a>
+            <div class="header-search-wrap">
+                <form class="header-search" method="get" action="processes.php">
+                    <span class="header-search-ico"><?= app_icon('search', '', 16) ?></span>
+                    <input type="search" name="q" class="header-search-input" placeholder="جستجوی فرآیندها در پنل تیم…" value="<?= (isset($_GET['q']) && $active === 'processes') ? e($_GET['q']) : '' ?>" autocomplete="off">
+                    <button type="submit" class="header-search-btn" title="جستجو"><span>جستجو</span></button>
+                </form>
+            </div>
             <div style="display:flex;align-items:center;gap:10px">
                 <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها" style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,0.85);border:1px solid var(--line);color:var(--text);text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:all .2s ease">
                     <?= app_icon('bot', '', 18) ?>

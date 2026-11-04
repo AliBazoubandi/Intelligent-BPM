@@ -40,7 +40,7 @@ $csrf = csrf_token();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ورود تیم فرآیند | رابین‌فلو (RobinFlow)</title>
+<title>ورود تیم فرآیند | رابین‌فلو</title>
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -48,7 +48,7 @@ $csrf = csrf_token();
 <main class="login-card">
     <div class="login-brand">
         <div class="login-logo"><?= app_icon('brand', 'login-brand-icon', 38) ?></div>
-        <h1>رابین‌فلو <span style="font-size:16px;font-weight:400;opacity:.8">(RobinFlow)</span></h1>
+        <h1>رابین‌فلو</h1>
         <p>سامانه مدیریت و بهبود فرآیندها</p>
         <span class="login-area-tag">ورود تیم فرآیند</span>
     </div>

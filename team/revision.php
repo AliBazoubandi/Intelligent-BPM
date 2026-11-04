@@ -271,7 +271,7 @@ team_header($id, 'discussion', $pageTitle);
             <div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
                 <b>پیشنهاد بهبود مبنا:</b>
                 <span><?= e($imp['Title']) ?></span>
-                <?= hermes_badge($imp['AiVerdict'] ?? 'pending') ?>
+                <?= hermes_badge($imp['AiVerdict'] ?? 'pending', $imp['CreatedAt'] ?? null, (int)$imp['ID'], false) ?>
             </div>
             <?php if ($imp['Description']): ?>
                 <div style="color:var(--muted);line-height:1.6"><?= nl2br(e($imp['Description'])) ?></div>
