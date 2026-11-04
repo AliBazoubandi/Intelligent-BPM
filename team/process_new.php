@@ -10,7 +10,11 @@ $db = app_db();
 $tid = (int)$id['id'];
 
 $error = '';
-$old = ['name' => '', 'category_id' => 0, 'company_id' => 0, 'owner_id' => 0, 'version' => '1.0', 'description' => ''];
+$old = [
+    'name' => '', 'category_id' => 0, 'company_id' => 0, 'owner_position_id' => 0,
+    'owner_id' => 0, 'audience_type' => 'all_company', 'audience_dept' => '',
+    'version' => '1.0', 'description' => ''
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_check($_POST['csrf'] ?? null)) {
@@ -20,10 +24,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'name' => trim((string)($_POST['name'] ?? '')),
             'category_id' => (int)($_POST['category_id'] ?? 0),
             'company_id' => (int)($_POST['company_id'] ?? 0),
+            'owner_position_id' => (int)($_POST['owner_position_id'] ?? 0),
             'owner_id' => (int)($_POST['owner_id'] ?? 0),
+            'audience_type' => (string)($_POST['audience_type'] ?? 'all_company'),
+            'audience_dept' => trim((string)($_POST['audience_dept'] ?? '')),
             'version' => trim((string)($_POST['version'] ?? '1.0')) ?: '1.0',
             'description' => trim((string)($_POST['description'] ?? '')),
         ];
+        if (!in_array($old['audience_type'], ['all_company', 'specific_positions', 'specific_personnel', 'department'], true)) {
+            $old['audience_type'] = 'all_company';
+        }
         $status = (string)($_POST['status'] ?? 'draft');
         if (!in_array($status, ['draft','active','archived'], true)) $status = 'draft';
 
@@ -53,12 +63,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $companyId = $old['company_id'] ?: null;
+                $ownerPosId = $old['owner_position_id'] ?: null;
                 $ownerId = $old['owner_id'] ?: null;
+                $audDept = ($old['audience_type'] === 'department' && $old['audience_dept'] !== '') ? $old['audience_dept'] : null;
+
                 $st = $db->prepare(
-                    "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, ResponsibleTeamID, Description, Status, Version)
-                     VALUES (?,?,?,?,?,?,?,?,?)"
+                    "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
                 );
-                $st->bind_param('siisiisss', $cleanName, $old['category_id'], $companyId, $rel, $ownerId, $tid, $old['description'], $status, $old['version']);
+                $st->bind_param('siisiissssss', $cleanName, $old['category_id'], $companyId, $rel, $ownerId, $ownerPosId, $tid, $old['description'], $old['audience_type'], $audDept, $status, $old['version']);
                 $st->execute();
                 $newId = (int)$db->insert_id;
                 $st->close();
@@ -73,6 +86,15 @@ $categories = active_categories($db);
 $companies = [];
 $res = $db->query('SELECT ID, Name FROM Companies WHERE Active=1 ORDER BY Name');
 while ($r = $res->fetch_assoc()) $companies[] = $r;
+$positions = [];
+$res = $db->query("
+    SELECT op.ID, op.Title, op.Department, p.Name, p.Family, p.PersonnelCode
+    FROM OrgPositions op
+    LEFT JOIN Personnel p ON p.ID = op.CurrentPersonnelID
+    WHERE op.Active = 1
+    ORDER BY op.SortOrder, op.Title
+");
+while ($r = $res->fetch_assoc()) $positions[] = $r;
 $persons = [];
 $res = $db->query('SELECT ID, PersonnelCode, Name, Family FROM Personnel WHERE Active=1 ORDER BY Name');
 while ($r = $res->fetch_assoc()) $persons[] = $r;
@@ -110,15 +132,41 @@ while ($r = $res->fetch_assoc()) $persons[] = $r;
                 </select>
             </label>
             <label class="field">
-                <span class="field-label">مالک فرآیند (پرسنل)</span>
-                <select name="owner_id">
-                    <option value="0">— انتخاب —</option>
-                    <?php foreach ($persons as $p): ?>
-                        <option value="<?= (int)$p['ID'] ?>" <?= $old['owner_id'] === (int)$p['ID'] ? 'selected' : '' ?>><?= e($p['Name'] . ' ' . $p['Family']) ?> (<?= e($p['PersonnelCode']) ?>)</option>
+                <span class="field-label">متولی فرآیند از چارت سازمانی</span>
+                <select name="owner_position_id">
+                    <option value="0">— بدون متولی چارت —</option>
+                    <?php foreach ($positions as $p): ?>
+                        <?php 
+                            $occupant = (!empty($p['Name'])) ? ' — شاغل: ' . e($p['Name'] . ' ' . $p['Family']) : ' (بلاتصدی)';
+                        ?>
+                        <option value="<?= (int)$p['ID'] ?>" <?= $old['owner_position_id'] === (int)$p['ID'] ? 'selected' : '' ?>>
+                            <?= e($p['Title']) ?><?= !empty($p['Department']) ? ' [' . e($p['Department']) . ']' : '' ?><?= $occupant ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
+                <small style="color:var(--muted);font-size:11px;margin-top:2px;display:block">هنگام تغییر یا به‌روزرسانی این فرآیند، پیام خودکار به شاغل فعلی این سمت در بله ارسال می‌شود.</small>
             </label>
         </div>
+        <div class="form-row">
+            <label class="field">
+                <span class="field-label">دامنه مخاطبان اثرپذیر (ارسال اعلان در پیام‌رسان بله)</span>
+                <select name="audience_type" id="audienceTypeSelect" onchange="toggleAudienceDept(this.value)">
+                    <option value="all_company" <?= $old['audience_type'] === 'all_company' ? 'selected' : '' ?>>همه پرسنل شرکت (عمومی — مانند مرخصی، مأموریت و ...)</option>
+                    <option value="specific_positions" <?= $old['audience_type'] === 'specific_positions' ? 'selected' : '' ?>>سمت‌های اثرپذیر از چارت (تخصصی)</option>
+                    <option value="specific_personnel" <?= $old['audience_type'] === 'specific_personnel' ? 'selected' : '' ?>>افراد و پرسنل مشخص اثرپذیر</option>
+                    <option value="department" <?= $old['audience_type'] === 'department' ? 'selected' : '' ?>>واحد / دپارتمان سازمانی مشخص</option>
+                </select>
+            </label>
+            <label class="field" id="audienceDeptWrap" style="display:<?= $old['audience_type'] === 'department' ? 'block' : 'none' ?>">
+                <span class="field-label">نام دپارتمان اثرپذیر</span>
+                <input type="text" name="audience_dept" value="<?= e($old['audience_dept']) ?>" placeholder="مثلاً بازرگانی یا فناوری اطلاعات">
+            </label>
+        </div>
+        <script>
+        function toggleAudienceDept(val) {
+            document.getElementById('audienceDeptWrap').style.display = (val === 'department') ? 'block' : 'none';
+        }
+        </script>
         <div class="form-row">
             <label class="field">
                 <span class="field-label">نسخه اولیه</span>
@@ -127,8 +175,17 @@ while ($r = $res->fetch_assoc()) $persons[] = $r;
             <label class="field">
                 <span class="field-label">وضعیت</span>
                 <select name="status">
-                    <option value="draft">پیش‌نویس</option>
+                    <option value="draft" <?= $old['version'] === 'draft' ? 'selected' : '' ?>>پیش‌نویس</option>
                     <option value="active">فعال</option>
+                </select>
+            </label>
+            <label class="field">
+                <span class="field-label">مالک فرآیند (پرسنل مستقیم - اختیاری)</span>
+                <select name="owner_id">
+                    <option value="0">— انتخاب —</option>
+                    <?php foreach ($persons as $p): ?>
+                        <option value="<?= (int)$p['ID'] ?>" <?= $old['owner_id'] === (int)$p['ID'] ? 'selected' : '' ?>><?= e($p['Name'] . ' ' . $p['Family']) ?> (<?= e($p['PersonnelCode']) ?>)</option>
+                    <?php endforeach; ?>
                 </select>
             </label>
         </div>

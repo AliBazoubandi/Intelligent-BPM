@@ -1,23 +1,29 @@
 <?php
 /**
  * مشاهده پرونده فرآیند — پنل تیم
- * تب‌ها: مشاهده فرآیند | مستندات | لیست بهبودها | لیست مجریان | لیست تغییرات
+ * تب‌ها: مشاهده فرآیند | مستندات | متولی و مخاطبان بله | لیست بهبودها | لیست مجریان | لیست تغییرات
  */
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/ui.php';
 require_once __DIR__ . '/../inc/files.php';
 require_once __DIR__ . '/../inc/hermes.php';
+require_once __DIR__ . '/../inc/bale.php';
 $id = require_area('team');
 $db = app_db();
 $tid = (int)$id['id'];
 
 $procId = (int)($_GET['id'] ?? 0);
 $st = $db->prepare(
-    "SELECT p.*, cat.Title AS CatTitle, cat.FolderName, c.Name AS CompanyName, t.TeamName AS RespTeam
+    "SELECT p.*, cat.Title AS CatTitle, cat.FolderName, c.Name AS CompanyName, t.TeamName AS RespTeam,
+            op.Title AS OwnerPositionTitle, op.Department AS OwnerDepartment,
+            per.Name AS OwnerPersName, per.Family AS OwnerPersFamily, per.PersonnelCode AS OwnerPersCode,
+            per.BaleChatID AS OwnerBale, per.Phone AS OwnerPhone
      FROM Processes p
      JOIN ProcessCategories cat ON cat.ID = p.CategoryID
      LEFT JOIN Companies c ON c.ID = p.CompanyID
      LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
+     LEFT JOIN OrgPositions op ON op.ID = p.OwnerPositionID
+     LEFT JOIN Personnel per ON per.ID = op.CurrentPersonnelID
      WHERE p.ID = ?"
 );
 $st->bind_param('i', $procId);
@@ -65,7 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $upErr = null;
             $saved = fm_store_upload($_FILES['doc'], rtrim($absDir, DIRECTORY_SEPARATOR), $upErr);
             if ($saved !== null) {
-                flash_set('ok', 'مستند «' . $saved . '» با موفقیت بارگذاری شد.');
+                $okMsg = 'مستند «' . $saved . '» با موفقیت بارگذاری شد.';
+                if (!empty($_POST['notify_bale'])) {
+                    $baleRes = bale_notify_process_change($db, $procId, 'بارگذاری مستند جدید: ' . $saved, 'مستند «' . $saved . '» در پرونده این فرآیند بارگذاری شد.', null, $tid);
+                    if (!empty($baleRes['sent']) && $baleRes['sent'] > 0) {
+                        $okMsg .= ' و پیام اطلاع‌رسانی به ' . farsi_num($baleRes['sent']) . ' مخاطب در بله ارسال شد.';
+                    }
+                }
+                flash_set('ok', $okMsg);
             } else {
                 flash_set('error', $upErr ?: 'خطا در ذخیره فایل.');
             }
@@ -78,6 +91,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 flash_set('error', 'فایل معتبر نیست.');
             }
+        } elseif ($action === 'broadcast_bale') {
+            $baleTitle = trim((string)($_POST['bale_title'] ?? 'اطلاع‌رسانی فرآیند'));
+            $baleDesc  = trim((string)($_POST['bale_description'] ?? ''));
+            if ($baleTitle === '') $baleTitle = 'اطلاع‌رسانی فرآیند «' . $proc['Name'] . '»';
+            $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, null, $tid);
+            if (!empty($baleRes['sent']) && $baleRes['sent'] > 0) {
+                flash_set('ok', 'پیام با موفقیت به ' . farsi_num($baleRes['sent']) . ' مخاطب در بله ارسال گردید.');
+            } else {
+                flash_set('error', 'پیامی ارسال نشد (بررسی کنید مخاطبان دارای شناسه بله باشند یا وب‌سرویس فعال باشد).');
+            }
+            $redirectUrl = 'file.php?id=' . $procId . '&tab=audience';
+        } elseif ($action === 'update_org_settings') {
+            $ownerPosId = (int)($_POST['owner_position_id'] ?? 0) ?: null;
+            $audType = (string)($_POST['audience_type'] ?? 'all_company');
+            if (!in_array($audType, ['all_company', 'specific_positions', 'specific_personnel', 'department'], true)) $audType = 'all_company';
+            $audDept = ($audType === 'department') ? trim((string)($_POST['audience_department'] ?? '')) : null;
+
+            $st = $db->prepare("UPDATE Processes SET OwnerPositionID = ?, AudienceType = ?, AudienceDepartment = ?, UpdatedAt = NOW() WHERE ID = ?");
+            $st->bind_param('issi', $ownerPosId, $audType, $audDept, $procId);
+            $st->execute(); $st->close();
+            flash_set('ok', 'تنظیمات متولی چارت و دامنه مخاطبان اثرپذیر فرآیند با موفقیت ذخیره شد.');
+            $redirectUrl = 'file.php?id=' . $procId . '&tab=audience';
+        } elseif ($action === 'add_audience_target') {
+            $targetType = (string)($_POST['target_type'] ?? 'position');
+            $targetId = (int)($_POST['target_id'] ?? 0);
+            $targetName = trim((string)($_POST['target_name'] ?? ''));
+            if ($targetId > 0) {
+                $stCh = $db->prepare("SELECT ID FROM ProcessAudience WHERE ProcessID = ? AND TargetType = ? AND TargetID = ?");
+                $stCh->bind_param('isi', $procId, $targetType, $targetId);
+                $stCh->execute();
+                $exists = (bool)$stCh->get_result()->fetch_assoc();
+                $stCh->close();
+                if (!$exists) {
+                    $stIn = $db->prepare("INSERT INTO ProcessAudience (ProcessID, TargetType, TargetID, TargetName) VALUES (?, ?, ?, ?)");
+                    $stIn->bind_param('isis', $procId, $targetType, $targetId, $targetName);
+                    $stIn->execute();
+                    $stIn->close();
+                    flash_set('ok', 'مخاطب جدید به فهرست اثرپذیران فرآیند اضافه شد.');
+                }
+            }
+            $redirectUrl = 'file.php?id=' . $procId . '&tab=audience';
+        } elseif ($action === 'remove_audience_target') {
+            $audId = (int)($_POST['audience_id'] ?? 0);
+            $st = $db->prepare("DELETE FROM ProcessAudience WHERE ID = ? AND ProcessID = ?");
+            $st->bind_param('ii', $audId, $procId);
+            $st->execute(); $st->close();
+            flash_set('ok', 'مخاطب از لیست اثرپذیران حذف شد.');
+            $redirectUrl = 'file.php?id=' . $procId . '&tab=audience';
         } elseif ($action === 'add_executor') {
             $persId = (int)($_POST['personnel_id'] ?? 0);
             $role = trim((string)($_POST['role'] ?? 'مجری')) ?: 'مجری';
@@ -120,10 +181,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $st = $db->prepare('UPDATE Processes SET Version = ?, UpdatedAt = NOW() WHERE ID = ?');
                     $st->bind_param('si', $nv, $procId);
                     $st->execute(); $st->close();
-                    flash_set('ok', 'تغییر ثبت و نسخه فرآیند به ' . $nv . ' به‌روزرسانی شد.');
+                    $msg = 'تغییر ثبت و نسخه فرآیند به ' . $nv . ' به‌روزرسانی شد.';
                 } else {
-                    flash_set('ok', 'تغییر ثبت شد.');
+                    $msg = 'تغییر ثبت شد.';
                 }
+
+                if (!empty($_POST['notify_bale'])) {
+                    $baleTitle = 'ثبت تغییر در فرآیند' . ($nv !== '' ? ' (نسخه ' . $nv . ')' : '');
+                    $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $chDesc, null, $tid);
+                    if (!empty($baleRes['sent']) && $baleRes['sent'] > 0) {
+                        $msg .= ' و پیام تغییر به ' . farsi_num($baleRes['sent']) . ' مخاطب در بله ارسال گردید.';
+                    }
+                }
+                flash_set('ok', $msg);
                 $redirectUrl = 'file.php?id=' . $procId . '&tab=changes';
             }
         } elseif ($action === 'set_status' && $tabBack === 'info') {
@@ -141,15 +211,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $tab = (string)($_GET['tab'] ?? $_POST['tab'] ?? 'info');
-if (!in_array($tab, ['info','docs','improvements','executors','changes'], true)) $tab = 'info';
+if (!in_array($tab, ['info','docs','audience','improvements','executors','changes'], true)) $tab = 'info';
 
-/* ---------- شمارش‌ها برای تب‌ها ---------- */
+/* ---------- استخراج اطلاعات مخاطبان و شمارش‌ها برای تب‌ها ---------- */
+$recipientsInfo = bale_get_process_recipients($db, $procId);
 $counts = [];
-foreach (['docs' => null, 'improvements' => 'Improvements', 'executors' => 'ProcessExecutors', 'changes' => 'Changes'] as $k => $tbl) {
+foreach (['docs' => null, 'audience' => null, 'improvements' => 'Improvements', 'executors' => 'ProcessExecutors', 'changes' => 'Changes'] as $k => $tbl) {
     if ($k === 'docs') {
         $n = 0;
         if (is_dir($absDir)) foreach (scandir($absDir) as $f) if ($f !== '.' && $f !== '..' && $f !== '.htaccess' && is_file($absDir . $f)) $n++;
         $counts['docs'] = $n;
+    } elseif ($k === 'audience') {
+        $counts['audience'] = count($recipientsInfo['all_recipients'] ?? []);
     } else {
         $col = $tbl === 'Improvements' ? 'ProcessID' : 'ProcessID';
         $st = $db->prepare("SELECT COUNT(*) c FROM `$tbl` WHERE $col = ?");
@@ -162,6 +235,7 @@ foreach (['docs' => null, 'improvements' => 'Improvements', 'executors' => 'Proc
 $tabs = [
     'info' => 'مشاهده فرآیند',
     'docs' => 'مستندات',
+    'audience' => 'متولی و مخاطبان بله',
     'improvements' => 'لیست بهبودها',
     'executors' => 'لیست مجریان',
     'changes' => 'لیست تغییرات',
@@ -195,6 +269,45 @@ $csrf = csrf_token();
         <tr><th style="width:190px">دسته (فولدر)</th><td><?= e($proc['CatTitle']) ?></td></tr>
         <tr><th>شرکت</th><td><?= e($proc['CompanyName'] ?? '—') ?></td></tr>
         <tr><th>تیم فرآیند مسئول</th><td><?= e($proc['RespTeam'] ?? '—') ?></td></tr>
+        <tr>
+            <th>متولی فرآیند (چارت سازمانی)</th>
+            <td>
+                <?php if (!empty($proc['OwnerPositionTitle'])): ?>
+                    <strong style="color:var(--brand-dark)"><?= e($proc['OwnerPositionTitle']) ?></strong>
+                    <?php if (!empty($proc['OwnerDepartment'])): ?><span class="badge" style="margin-inline-start:6px"><?= e($proc['OwnerDepartment']) ?></span><?php endif; ?>
+                    <?php if (!empty($proc['OwnerPersName'])): ?>
+                        <span style="margin-inline-start:8px;font-size:12.5px">
+                            (شاغل فعلی: <strong><?= e($proc['OwnerPersName'] . ' ' . $proc['OwnerPersFamily']) ?></strong>
+                            <?php if (!empty($proc['OwnerBale'])): ?>
+                                <span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:11px;margin-inline-start:4px">✓ بله</span>
+                            <?php endif; ?>)
+                        </span>
+                    <?php else: ?>
+                        <span class="badge" style="background:#fef3c7;color:#92400e;margin-inline-start:8px">بلاتصدی</span>
+                    <?php endif; ?>
+                    <a href="file.php?id=<?= $procId ?>&tab=audience" class="btn btn-ghost btn-xs" style="margin-inline-start:8px">مدیریت متولی و مخاطبان</a>
+                <?php else: ?>
+                    <span style="color:var(--muted)">تعیین نشده</span>
+                    <a href="file.php?id=<?= $procId ?>&tab=audience" class="btn btn-ghost btn-xs" style="margin-inline-start:8px">تعیین متولی از چارت</a>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <tr>
+            <th>دامنه مخاطبان اثرپذیر (بله)</th>
+            <td>
+                <?php
+                $audLbl = match ($proc['AudienceType'] ?? 'all_company') {
+                    'all_company' => 'تمام پرسنل شرکت (عمومی)',
+                    'specific_positions' => 'سمت‌های اثرپذیر از چارت',
+                    'specific_personnel' => 'پرسنل مشخص اثرپذیر',
+                    'department' => 'واحد ' . ($proc['AudienceDepartment'] ?? ''),
+                    default => 'سازمان',
+                };
+                ?>
+                <span class="badge badge-active"><?= e($audLbl) ?></span>
+                <span style="font-size:12px;color:var(--muted);margin-inline-start:8px">(<?= farsi_num($counts['audience']) ?> دریافت‌کننده در بله)</span>
+            </td>
+        </tr>
         <tr><th>نسخه</th><td><span class="num-ltr"><?= e($proc['Version']) ?></span></td></tr>
         <tr><th>مسیر فایل‌ها</th><td><span class="num-ltr"><?= e('processes/' . $relDir) ?></span></td></tr>
         <tr><th>آخرین به‌روزرسانی</th><td><?= e(fmt_date($proc['UpdatedAt'])) ?></td></tr>
@@ -261,18 +374,384 @@ $csrf = csrf_token();
     <?php endif; ?>
 
     <?php if ($isOwnerTeam): ?>
-    <form method="post" enctype="multipart/form-data" style="margin-top:16px;display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+    <form method="post" enctype="multipart/form-data" style="margin-top:16px;background:var(--bg);padding:14px;border-radius:12px;border:1px solid var(--line)">
         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
         <input type="hidden" name="action" value="upload">
         <input type="hidden" name="tab" value="docs">
-        <label class="field" style="margin:0;flex:1;min-width:240px">
-            <span class="field-label">بارگذاری مستند جدید (pdf, docx, xls, zip, تصویر و… حداکثر ۲۰ مگابایت)</span>
-            <input type="file" name="doc" required>
-        </label>
-        <button class="btn">⬆ بارگذاری</button>
+        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+            <label class="field" style="margin:0;flex:1;min-width:240px">
+                <span class="field-label">بارگذاری مستند جدید (pdf, docx, xls, zip, تصویر و… حداکثر ۲۰ مگابایت)</span>
+                <input type="file" name="doc" required>
+            </label>
+            <button class="btn">⬆ بارگذاری مستند</button>
+        </div>
+        <div style="margin-top:10px">
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" name="notify_bale" value="1" checked>
+                <span>ارسال خودکار پیام اطلاع‌رسانی بارگذاری این مستند به <strong>متولی چارت</strong> و <strong>مخاطبان اثرپذیر</strong> در پیام‌رسان بله</span>
+            </label>
+        </div>
     </form>
     <?php endif; ?>
 </div>
+
+<?php elseif ($tab === 'audience'): ?>
+<?php
+// دریافت لیست کامل سمت‌های چارت سازمانی
+$resPos = $db->query("SELECT op.ID, op.Title, op.Department, p.Name, p.Family FROM OrgPositions op LEFT JOIN Personnel p ON p.ID = op.CurrentPersonnelID WHERE op.Active = 1 ORDER BY op.SortOrder, op.Title");
+$allOrgPositions = [];
+while ($r = $resPos->fetch_assoc()) $allOrgPositions[] = $r;
+
+// دریافت لیست کامل پرسنل فعال
+$resPers = $db->query("SELECT ID, PersonnelCode, Name, Family, BaleChatID, Phone FROM Personnel WHERE Active = 1 ORDER BY Name, Family");
+$allPersonnel = [];
+while ($r = $resPers->fetch_assoc()) $allPersonnel[] = $r;
+
+// دریافت مخاطبان اختصاصی ثبت‌شده در ProcessAudience
+$stAud = $db->prepare("SELECT * FROM ProcessAudience WHERE ProcessID = ? ORDER BY ID ASC");
+$stAud->bind_param('i', $procId);
+$stAud->execute();
+$customAudience = $stAud->get_result()->fetch_all(MYSQLI_ASSOC);
+$stAud->close();
+
+$ownerPosTitle = $proc['OwnerPositionTitle'] ?? '';
+$ownerOccupantName = trim(($proc['OwnerPersName'] ?? '') . ' ' . ($proc['OwnerPersFamily'] ?? ''));
+$ownerBale = $proc['OwnerBale'] ?: ($proc['OwnerPhone'] ?: '');
+$currentAudType = $proc['AudienceType'] ?? 'all_company';
+?>
+
+<!-- بخش ۱: متولی فرآیند از چارت سازمانی -->
+<div class="card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div>
+            <h2 style="margin:0 0 4px">👤 متولی فرآیند از چارت سازمانی (Process Owner)</h2>
+            <div style="font-size:13px;color:var(--muted)">این فرآیند به کدام سمت در چارت سازمانی تعلق دارد؟ سیستم به صورت خودکار شاغل فعلی این سمت را شناسایی کرده و هنگام تغییر به وی پیام می‌دهد.</div>
+        </div>
+        <a href="basics_chart.php" class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center;gap:6px">
+            <?= app_icon('basics', '', 14) ?> مشاهده و ویرایش چارت سازمانی
+        </a>
+    </div>
+
+    <div style="background:var(--bg);padding:14px 18px;border-radius:12px;border:1px solid var(--line);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px">
+            <span class="avatar avatar-compact avatar-team" style="width:40px;height:40px;font-size:16px">
+                <?= $ownerOccupantName ? e(mb_substr($proc['OwnerPersName'], 0, 1)) : '؟' ?>
+            </span>
+            <div>
+                <div style="font-size:15px;font-weight:800;color:var(--ink)">
+                    <?= $ownerPosTitle ? e($ownerPosTitle) : '<span style="color:var(--danger)">بدون متولی سازمانی</span>' ?>
+                    <?php if (!empty($proc['OwnerDepartment'])): ?>
+                        <span class="badge" style="margin-inline-start:6px"><?= e($proc['OwnerDepartment']) ?></span>
+                    <?php endif; ?>
+                </div>
+                <div style="font-size:12.5px;color:var(--muted);margin-top:2px">
+                    <?php if ($ownerOccupantName): ?>
+                        شاغل فعلی در چارت: <strong style="color:var(--ink)"><?= e($ownerOccupantName) ?></strong> (کد: <?= e($proc['OwnerPersCode'] ?? '—') ?>)
+                    <?php else: ?>
+                        <span class="badge" style="background:#fef3c7;color:#92400e">این سمت فعلاً در چارت بلاتصدی است (فاقد شاغل)</span>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div>
+            <?php if ($ownerBale): ?>
+                <span class="badge badge-active" style="display:inline-flex;align-items:center;gap:5px;font-size:12px">
+                    <?= app_icon('bot', '', 14) ?> بله: <span class="num-ltr"><?= e($ownerBale) ?></span>
+                </span>
+            <?php elseif ($ownerOccupantName): ?>
+                <span class="badge" style="background:#fee2e2;color:#b91c1c;font-size:12px">
+                    ⚠️ شاغل فاقد شناسه بله
+                </span>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <?php if ($isOwnerTeam): ?>
+    <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+        <input type="hidden" name="action" value="update_org_settings">
+        <input type="hidden" name="tab" value="audience">
+        <input type="hidden" name="audience_type" value="<?= e($currentAudType) ?>">
+        <input type="hidden" name="audience_department" value="<?= e($proc['AudienceDepartment'] ?? '') ?>">
+
+        <label class="field" style="margin:0;flex:1;min-width:260px">
+            <span class="field-label">تغییر سمت متولی در چارت سازمانی</span>
+            <select name="owner_position_id">
+                <option value="0">— بدون سمت متولی —</option>
+                <?php foreach ($allOrgPositions as $p): ?>
+                    <?php 
+                        $occ = (!empty($p['Name'])) ? ' (شاغل فعلی: ' . e($p['Name'] . ' ' . $p['Family']) . ')' : ' [بلاتصدی]';
+                    ?>
+                    <option value="<?= (int)$p['ID'] ?>" <?= (int)$proc['OwnerPositionID'] === (int)$p['ID'] ? 'selected' : '' ?>>
+                        <?= e($p['Title']) ?><?= !empty($p['Department']) ? ' — ' . e($p['Department']) : '' ?><?= $occ ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <button type="submit" class="btn btn-sm">ذخیره متولی فرآیند</button>
+    </form>
+    <?php endif; ?>
+</div>
+
+<!-- بخش ۲: دامنه و لیست مخاطبان اثرپذیر فرآیند -->
+<div class="card">
+    <div style="margin-bottom:14px">
+        <h2 style="margin:0 0 4px">👥 دامنه مخاطبان اثرپذیر (ارسال اعلان در پیام‌رسان بله)</h2>
+        <div style="font-size:13px;color:var(--muted)">چه افرادی از تغییر این فرآیند اثر می‌پذیرند؟ (مثلاً برای فرآیندی مانند «مرخصی» تمام پرسنل شرکت اثرپذیرند، و برای فرآیندهای تخصصی مانند «پیش‌فاکتور» سمت‌های بازرگانی و فروش).</div>
+    </div>
+
+    <?php if ($isOwnerTeam): ?>
+    <form method="post" style="background:var(--bg);padding:14px 18px;border-radius:12px;border:1px solid var(--line);margin-bottom:18px">
+        <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+        <input type="hidden" name="action" value="update_org_settings">
+        <input type="hidden" name="tab" value="audience">
+        <input type="hidden" name="owner_position_id" value="<?= (int)($proc['OwnerPositionID'] ?? 0) ?>">
+
+        <div class="form-row" style="align-items:flex-end">
+            <label class="field" style="margin:0">
+                <span class="field-label">تعیین دامنه اثرپذیری این فرآیند</span>
+                <select name="audience_type" id="pageAudienceSelect" onchange="toggleAudienceInputs(this.value)">
+                    <option value="all_company" <?= $currentAudType === 'all_company' ? 'selected' : '' ?>>همه پرسنل شرکت (عمومی — مانند مرخصی، مأموریت و ...)</option>
+                    <option value="specific_positions" <?= $currentAudType === 'specific_positions' ? 'selected' : '' ?>>سمت‌های اثرپذیر از چارت (تخصصی)</option>
+                    <option value="specific_personnel" <?= $currentAudType === 'specific_personnel' ? 'selected' : '' ?>>افراد و پرسنل مشخص اثرپذیر</option>
+                    <option value="department" <?= $currentAudType === 'department' ? 'selected' : '' ?>>واحد / دپارتمان سازمانی مشخص</option>
+                </select>
+            </label>
+            <div id="deptInputWrap" style="display:<?= $currentAudType === 'department' ? 'block' : 'none' ?>;flex:1">
+                <label class="field" style="margin:0">
+                    <span class="field-label">نام دپارتمان</span>
+                    <input type="text" name="audience_department" value="<?= e($proc['AudienceDepartment'] ?? '') ?>" placeholder="مثلاً بازرگانی یا مالی">
+                </label>
+            </div>
+            <button type="submit" class="btn btn-sm">ذخیره دامنه مخاطبان</button>
+        </div>
+    </form>
+    <script>
+    function toggleAudienceInputs(val) {
+        document.getElementById('deptInputWrap').style.display = (val === 'department') ? 'block' : 'none';
+    }
+    </script>
+    <?php endif; ?>
+
+    <!-- در صورتی که دامنه سمت‌های مشخص باشد -->
+    <?php if ($currentAudType === 'specific_positions'): ?>
+        <h3 style="font-size:14px;margin-bottom:8px">سمت‌های اثرپذیر مشخص‌شده در چارت</h3>
+        <?php if ($isOwnerTeam): ?>
+            <form method="post" class="inline-form" style="margin-bottom:14px;background:var(--bg);padding:10px 14px;border-radius:10px">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                <input type="hidden" name="action" value="add_audience_target">
+                <input type="hidden" name="tab" value="audience">
+                <input type="hidden" name="target_type" value="position">
+                <span class="field-label" style="margin:0">افزودن سمت اثرپذیر:</span>
+                <select name="target_id" id="targetPosSelect" onchange="updateTargetName(this)" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+                    <option value="0">— انتخاب سمت از چارت —</option>
+                    <?php foreach ($allOrgPositions as $p): ?>
+                        <option value="<?= (int)$p['ID'] ?>" data-name="<?= e($p['Title']) ?>">
+                            <?= e($p['Title']) ?><?= !empty($p['Department']) ? ' [' . e($p['Department']) . ']' : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="hidden" name="target_name" id="targetPosName" value="">
+                <button type="submit" class="btn btn-sm">＋ افزودن به مخاطبان</button>
+            </form>
+            <script>
+            function updateTargetName(sel) {
+                const opt = sel.options[sel.selectedIndex];
+                document.getElementById('targetPosName').value = opt ? opt.getAttribute('data-name') : '';
+            }
+            </script>
+        <?php endif; ?>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <?php 
+                $posAudience = array_filter($customAudience, fn($a) => $a['TargetType'] === 'position');
+                if (!$posAudience):
+            ?>
+                <span style="color:var(--muted);font-size:13px">سمت اثرپذیری ثبت نشده است. از فرم بالا اضافه کنید.</span>
+            <?php else: ?>
+                <?php foreach ($posAudience as $a): ?>
+                    <span class="badge" style="padding:6px 10px;font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:8px;display:inline-flex;align-items:center;gap:6px">
+                        <?= app_icon('basics', '', 13) ?>
+                        <strong><?= e($a['TargetName']) ?></strong>
+                        <?php if ($isOwnerTeam): ?>
+                            <form method="post" style="display:inline;margin:0" onsubmit="return confirm('حذف از فهرست اثرپذیران؟');">
+                                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                                <input type="hidden" name="action" value="remove_audience_target">
+                                <input type="hidden" name="tab" value="audience">
+                                <input type="hidden" name="audience_id" value="<?= (int)$a['ID'] ?>">
+                                <button type="submit" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:700;padding:0 2px" title="حذف">✕</button>
+                            </form>
+                        <?php endif; ?>
+                    </span>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+
+    <!-- در صورتی که دامنه پرسنل مشخص باشد -->
+    <?php elseif ($currentAudType === 'specific_personnel'): ?>
+        <h3 style="font-size:14px;margin-bottom:8px">پرسنل اثرپذیر مشخص‌شده</h3>
+        <?php if ($isOwnerTeam): ?>
+            <form method="post" class="inline-form" style="margin-bottom:14px;background:var(--bg);padding:10px 14px;border-radius:10px">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                <input type="hidden" name="action" value="add_audience_target">
+                <input type="hidden" name="tab" value="audience">
+                <input type="hidden" name="target_type" value="personnel">
+                <span class="field-label" style="margin:0">افزودن فرد اثرپذیر:</span>
+                <select name="target_id" id="targetPersSelect" onchange="updatePersTargetName(this)" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+                    <option value="0">— انتخاب پرسنل —</option>
+                    <?php foreach ($allPersonnel as $pers): ?>
+                        <option value="<?= (int)$pers['ID'] ?>" data-name="<?= e($pers['Name'] . ' ' . $pers['Family']) ?>">
+                            <?= e($pers['Name'] . ' ' . $pers['Family']) ?> (کد: <?= e($pers['PersonnelCode']) ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="hidden" name="target_name" id="targetPersName" value="">
+                <button type="submit" class="btn btn-sm">＋ افزودن به مخاطبان</button>
+            </form>
+            <script>
+            function updatePersTargetName(sel) {
+                const opt = sel.options[sel.selectedIndex];
+                document.getElementById('targetPersName').value = opt ? opt.getAttribute('data-name') : '';
+            }
+            </script>
+        <?php endif; ?>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <?php 
+                $persAudience = array_filter($customAudience, fn($a) => $a['TargetType'] === 'personnel');
+                if (!$persAudience):
+            ?>
+                <span style="color:var(--muted);font-size:13px">فردی در لیست اثرپذیران ثبت نشده است. از فرم بالا اضافه کنید.</span>
+            <?php else: ?>
+                <?php foreach ($persAudience as $a): ?>
+                    <span class="badge" style="padding:6px 10px;font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:8px;display:inline-flex;align-items:center;gap:6px">
+                        <?= app_icon('users', '', 13) ?>
+                        <strong><?= e($a['TargetName']) ?></strong>
+                        <?php if ($isOwnerTeam): ?>
+                            <form method="post" style="display:inline;margin:0" onsubmit="return confirm('حذف از فهرست اثرپذیران؟');">
+                                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                                <input type="hidden" name="action" value="remove_audience_target">
+                                <input type="hidden" name="tab" value="audience">
+                                <input type="hidden" name="audience_id" value="<?= (int)$a['ID'] ?>">
+                                <button type="submit" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:700;padding:0 2px" title="حذف">✕</button>
+                            </form>
+                        <?php endif; ?>
+                    </span>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+
+    <?php elseif ($currentAudType === 'all_company'): ?>
+        <div class="alert alert-ok" style="margin-bottom:14px">
+            ✓ دامنه این فرآیند <strong>عمومی</strong> تنظیم شده است. به محض ثبت هر تغییر، کلیه پرسنل فعال شرکت (<strong><?= farsi_num(count($recipientsInfo['all_recipients'])) ?> نفر</strong>) به عنوان مخاطب شناسایی شده و در بله پیام دریافت خواهند کرد.
+        </div>
+    <?php endif; ?>
+</div>
+
+<!-- بخش ۳: پیش‌نمایش جدول نهایی دریافت‌کنندگان پیام در بله -->
+<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap">
+        <div>
+            <h2 style="margin:0 0 2px">📋 فهرست کامل دریافت‌کنندگان پیام در بله (<?= farsi_num(count($recipientsInfo['all_recipients'])) ?> نفر)</h2>
+            <div style="font-size:12.5px;color:var(--muted)">این افراد هنگام تغییر، بازنگری یا ارسال دستی، پیام دریافت خواهند کرد.</div>
+        </div>
+        <a class="btn btn-xs btn-ghost" href="basics_bale.php">
+            <?= app_icon('bot', '', 13) ?> لاگ پیام‌های ارسالی
+        </a>
+    </div>
+
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th style="width:40px">#</th>
+                    <th>نام و کد پرسنلی</th>
+                    <th>سمت در چارت سازمانی</th>
+                    <th>نقش در این فرآیند</th>
+                    <th>شناسه بله / شماره تماس</th>
+                    <th>وضعیت بله</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($recipientsInfo['all_recipients'])): ?>
+                    <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">هیچ دریافت‌کننده‌ای برای این فرآیند یافت نشد.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($recipientsInfo['all_recipients'] as $i => $rec): ?>
+                        <?php 
+                            $isOwnerRec = ($rec['role'] ?? '') === 'owner';
+                            $hasBale = !empty($rec['bale_chat_id']);
+                        ?>
+                        <tr style="<?= $isOwnerRec ? 'background:var(--brand-soft);font-weight:600' : '' ?>">
+                            <td class="num-ltr" style="font-size:12px;color:var(--muted)"><?= farsi_num($i + 1) ?></td>
+                            <td>
+                                <strong><?= e($rec['name']) ?></strong>
+                            </td>
+                            <td><?= e($rec['position']) ?></td>
+                            <td>
+                                <?php if ($isOwnerRec): ?>
+                                    <span class="badge" style="background:#0e8a6d;color:#fff;font-weight:700">★ متولی اصلی فرآیند</span>
+                                <?php else: ?>
+                                    <span class="badge" style="background:var(--bg);color:var(--ink)"><?= e($rec['role_label']) ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($hasBale): ?>
+                                    <code class="num-ltr" style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px"><?= e($rec['bale_chat_id']) ?></code>
+                                <?php else: ?>
+                                    <span style="color:var(--muted)">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($hasBale): ?>
+                                    <span class="badge badge-active" style="font-size:11px">✓ آماده ارسال بله</span>
+                                <?php else: ?>
+                                    <span class="badge" style="background:#fee2e2;color:#b91c1c;font-size:11px">⚠️ فاقد شناسه بله</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- بخش ۴: فرم ارسال فوری پیام اطلاع‌رسانی در پیام‌رسان بله -->
+<?php if ($isOwnerTeam): ?>
+<div class="card" style="border:2px solid var(--brand-soft)">
+    <div style="margin-bottom:14px">
+        <h2 style="margin:0 0 4px;display:flex;align-items:center;gap:8px">
+            <?= app_icon('bot', '', 18) ?>
+            <span>ارسال پیام اطلاع‌رسانی فوری به متولی و مخاطبان در پیام‌رسان بله</span>
+        </h2>
+        <div style="font-size:13px;color:var(--muted)">با ثبت این فرم، پیام دلخواه شما در قالب استاندارد رابین‌فلو همراه با لینک مستقیم به تمام افراد فوق در پیام‌رسان بله مخابره می‌شود.</div>
+    </div>
+
+    <form method="post">
+        <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+        <input type="hidden" name="action" value="broadcast_bale">
+        <input type="hidden" name="tab" value="audience">
+
+        <label class="field">
+            <span class="field-label">موضوع / تیتر اطلاع‌رسانی</span>
+            <input type="text" name="bale_title" required value="تغییر و به‌روزرسانی در فرآیند «<?= e($proc['Name']) ?>»" maxlength="150">
+        </label>
+
+        <label class="field">
+            <span class="field-label">متن شرح تغییر یا نکات مهم برای بررسی مخاطبان</span>
+            <textarea name="bale_description" rows="3" required placeholder="لطفاً تغییرات جدید در مراحل فرآیند را بررسی نمایید…"></textarea>
+        </label>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+            <button type="submit" class="btn" style="display:inline-flex;align-items:center;gap:6px">
+                <?= app_icon('bot', '', 16) ?>
+                <span>ارسال پیام در بله به <?= farsi_num(count($recipientsInfo['all_recipients'])) ?> مخاطب</span>
+            </button>
+            <span style="font-size:12px;color:var(--muted)">پیام‌ها به صورت بلادرنگ به وب‌سرویس فعال بله تحویل داده می‌شوند.</span>
+        </div>
+    </form>
+</div>
+<?php endif; ?>
 
 <?php elseif ($tab === 'improvements'): ?>
 <div class="card">
@@ -495,6 +974,12 @@ $csrf = csrf_token();
             <span class="field-label">شرح تغییر</span>
             <textarea name="description" required maxlength="2000" placeholder="چه چیزی در فرآیند تغییر می‌کند…"></textarea>
         </label>
+        <div style="margin-bottom:12px">
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" name="notify_bale" value="1" checked>
+                <span>ارسال خودکار اعلان این تغییر به <strong>متولی چارت</strong> و <strong>مخاطبان اثرپذیر</strong> در پیام‌رسان بله</span>
+            </label>
+        </div>
         <button class="btn btn-sm">＋ ثبت تغییر</button>
     </form>
     <?php endif; ?>

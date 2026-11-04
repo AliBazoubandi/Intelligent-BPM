@@ -8,7 +8,7 @@ $id = require_area('team');
 $db = app_db();
 
 $error = '';
-$old = ['code' => '', 'name' => '', 'family' => '', 'company_id' => 0];
+$old = ['code' => '', 'name' => '', 'family' => '', 'company_id' => 0, 'bale_chat_id' => '', 'phone' => '', 'org_position_id' => 0];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_check($_POST['csrf'] ?? null)) $error = 'اعتبار صفحه منقضی شده است.';
@@ -18,6 +18,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'name' => trim((string)($_POST['name'] ?? '')),
             'family' => trim((string)($_POST['family'] ?? '')),
             'company_id' => (int)($_POST['company_id'] ?? 0),
+            'bale_chat_id' => trim((string)($_POST['bale_chat_id'] ?? '')),
+            'phone' => trim((string)($_POST['phone'] ?? '')),
+            'org_position_id' => (int)($_POST['org_position_id'] ?? 0),
         ];
         $password = (string)($_POST['password'] ?? '');
         $canReq = isset($_POST['can_request']) ? 1 : 0;
@@ -35,12 +38,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
                 $companyId = $old['company_id'] ?: null;
+                $orgPosId = $old['org_position_id'] ?: null;
+                $baleId = $old['bale_chat_id'] ?: null;
+                $phone = $old['phone'] ?: null;
                 $st = $db->prepare(
-                    'INSERT INTO Personnel (PersonnelCode, Name, Family, CompanyID, CanRequest, CanSearch, CanImprove, CanApprove, PasswordHash)
-                     VALUES (?,?,?,?,?,?,?,?,?)'
+                    'INSERT INTO Personnel (PersonnelCode, Name, Family, CompanyID, CanRequest, CanSearch, CanImprove, CanApprove, PasswordHash, BaleChatID, Phone, OrgPositionID)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
                 );
-                $st->bind_param('sssiiiiis', $old['code'], $old['name'], $old['family'], $companyId, $canReq, $canSearch, $canImprove, $canApprove, $hash);
-                $st->execute(); $st->close();
+                $st->bind_param('sssiiiiisssi', $old['code'], $old['name'], $old['family'], $companyId, $canReq, $canSearch, $canImprove, $canApprove, $hash, $baleId, $phone, $orgPosId);
+                $st->execute();
+                $newUserId = (int)$db->insert_id;
+                $st->close();
+
+                // اگر سمتی انتخاب شده بود، شاغل آن سمت در جدول OrgPositions نیز ثبت شود
+                if ($orgPosId) {
+                    $stP = $db->prepare("UPDATE OrgPositions SET CurrentPersonnelID = ? WHERE ID = ?");
+                    $stP->bind_param('ii', $newUserId, $orgPosId);
+                    $stP->execute();
+                    $stP->close();
+                }
+
                 header('Location: basics_users.php?created=' . rawurlencode($old['name'] . ' ' . $old['family']));
                 exit;
             }
@@ -50,6 +67,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $companies = [];
 $res = $db->query('SELECT ID, Name FROM Companies WHERE Active=1 ORDER BY Name');
 while ($r = $res->fetch_assoc()) $companies[] = $r;
+$positions = [];
+$res = $db->query('SELECT ID, Title, Department FROM OrgPositions WHERE Active=1 ORDER BY Title');
+while ($r = $res->fetch_assoc()) $positions[] = $r;
 ?>
 <?php team_header($id, 'basics_user_new', 'اطلاعات پایه — کاربر جدید'); ?>
 
@@ -84,8 +104,27 @@ while ($r = $res->fetch_assoc()) $companies[] = $r;
                 </select>
             </label>
             <label class="field">
+                <span class="field-label">سمت در چارت سازمانی</span>
+                <select name="org_position_id">
+                    <option value="0">— بدون سمت سازمانی —</option>
+                    <?php foreach ($positions as $p): ?>
+                        <option value="<?= (int)$p['ID'] ?>" <?= $old['org_position_id'] === (int)$p['ID'] ? 'selected' : '' ?>><?= e($p['Title']) ?><?= !empty($p['Department']) ? ' (' . e($p['Department']) . ')' : '' ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label class="field">
                 <span class="field-label">رمز عبور (حداقل ۶ نویسه)</span>
                 <input type="password" name="password" required minlength="6" maxlength="100">
+            </label>
+        </div>
+        <div class="form-row">
+            <label class="field">
+                <span class="field-label">شناسه / چت‌آیدی در بله (Bale Chat ID)</span>
+                <input type="text" name="bale_chat_id" placeholder="مثلاً 123456789 یا bale_username" value="<?= e($old['bale_chat_id']) ?>" class="num-ltr" style="text-align:left">
+            </label>
+            <label class="field">
+                <span class="field-label">شماره تلفن همراه</span>
+                <input type="text" name="phone" placeholder="0912..." value="<?= e($old['phone']) ?>" class="num-ltr" style="text-align:left">
             </label>
         </div>
         <span class="field-label">اجازه‌ها</span>

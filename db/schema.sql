@@ -25,12 +25,16 @@ CREATE TABLE IF NOT EXISTS Personnel (
   CanImprove TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'اجازه ثبت بهبود',
   CanApprove TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'اجازه تأیید',
   PasswordHash VARCHAR(255) NULL COMMENT 'رمز ورود کاربر',
+  BaleChatID VARCHAR(60) NULL COMMENT 'شناسه یا شماره کاربری در پیام‌رسان بله',
+  Phone VARCHAR(30) NULL COMMENT 'شماره تلفن همراه',
+  OrgPositionID INT UNSIGNED NULL COMMENT 'سمت سازمانی در چارت',
   Active TINYINT(1) NOT NULL DEFAULT 1,
   CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (ID),
   UNIQUE KEY uq_personnel_code (PersonnelCode),
   KEY idx_personnel_company (CompanyID),
-  KEY idx_personnel_team (TeamID)
+  KEY idx_personnel_team (TeamID),
+  KEY idx_personnel_org (OrgPositionID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لیست پرسنل';
 
 -- 2) لیست تیم‌های فرآیند
@@ -70,9 +74,12 @@ CREATE TABLE IF NOT EXISTS Processes (
   CategoryID INT UNSIGNED NOT NULL COMMENT 'دسته (فولدر)',
   CompanyID INT UNSIGNED NULL COMMENT 'شرکت',
   FilePath VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'مسیر فایل/پوشه فرآیند نسبت به processes/',
-  OwnerPersonnelID INT UNSIGNED NULL COMMENT 'مالک فرآیند',
+  OwnerPersonnelID INT UNSIGNED NULL COMMENT 'مالک فرآیند (پرسنل)',
+  OwnerPositionID INT UNSIGNED NULL COMMENT 'سمت متولی فرآیند از چارت سازمانی (مثلاً مدیر بازرگانی)',
   ResponsibleTeamID INT UNSIGNED NULL COMMENT 'تیم فرآیند مسئول',
   Description TEXT NULL,
+  AudienceType ENUM('all_company','specific_positions','specific_personnel','department') NOT NULL DEFAULT 'all_company' COMMENT 'دامنه مخاطبان اثرپذیر',
+  AudienceDepartment VARCHAR(100) NULL COMMENT 'نام واحد اثرپذیر در صورت انتخاب دپارتمان',
   Status ENUM('draft','active','archived') NOT NULL DEFAULT 'draft' COMMENT 'پیش‌نویس/فعال/بایگانی',
   Version VARCHAR(20) NOT NULL DEFAULT '1.0',
   CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -80,7 +87,8 @@ CREATE TABLE IF NOT EXISTS Processes (
   PRIMARY KEY (ID),
   KEY idx_process_category (CategoryID),
   KEY idx_process_company (CompanyID),
-  KEY idx_process_team (ResponsibleTeamID)
+  KEY idx_process_team (ResponsibleTeamID),
+  KEY idx_process_position (OwnerPositionID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لیست فرآیندها';
 
 -- 5) لیست بهبودها
@@ -215,3 +223,57 @@ CREATE TABLE IF NOT EXISTS AgentChats (
     CreatedAt DATETIME NOT NULL,
     INDEX idx_session (SessionType, SessionID, CreatedAt)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='گفتگو با دستیار هوشمند فرآیندها';
+
+-- --------------------------------------------------------
+-- چارت سازمانی و سمت‌های شغلی (Organizational Chart & Positions)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS OrgPositions (
+  ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  CompanyID INT UNSIGNED NULL COMMENT 'شرکت مرتبط',
+  Title VARCHAR(150) NOT NULL COMMENT 'عنوان سمت سازمانی (مثلاً مدیر بازرگانی)',
+  Department VARCHAR(100) NULL COMMENT 'واحد یا دپارتمان سازمانی',
+  ParentID INT UNSIGNED NULL COMMENT 'سمت بالادستی در چارت (برای ساختار درختی)',
+  CurrentPersonnelID INT UNSIGNED NULL COMMENT 'شاغل فعلی سمت',
+  Description VARCHAR(255) NULL COMMENT 'شرح وظایف و اختیارات',
+  SortOrder INT NOT NULL DEFAULT 0,
+  Active TINYINT(1) NOT NULL DEFAULT 1,
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (ID),
+  KEY idx_org_company (CompanyID),
+  KEY idx_org_parent (ParentID),
+  KEY idx_org_personnel (CurrentPersonnelID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='چارت سازمانی و سمت‌های شغلی';
+
+-- --------------------------------------------------------
+-- مخاطبان و افراد اثرپذیر فرآیندها (Process Affected Audience)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ProcessAudience (
+  ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ProcessID INT UNSIGNED NOT NULL,
+  TargetType ENUM('position','personnel','department') NOT NULL DEFAULT 'position',
+  TargetID INT UNSIGNED NULL COMMENT 'شناسه سمت یا پرسنل',
+  TargetName VARCHAR(150) NULL COMMENT 'نام سمت، شخص یا واحد',
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ID),
+  KEY idx_proc_audience (ProcessID, TargetType, TargetID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لیست سمت‌ها یا افراد اثرپذیر از فرآیند';
+
+-- --------------------------------------------------------
+-- لاگ و تاریخچه پیام‌های ارسالی پیام‌رسان بله (Bale Messenger Log)
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS BaleMessageLog (
+  ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ProcessID INT UNSIGNED NULL,
+  RecipientPersonnelID INT UNSIGNED NULL,
+  RecipientName VARCHAR(120) NULL,
+  RecipientPosition VARCHAR(120) NULL,
+  BaleChatID VARCHAR(60) NOT NULL,
+  MessageText TEXT NOT NULL,
+  Status ENUM('queued','sent','failed') NOT NULL DEFAULT 'sent',
+  ApiResponse TEXT NULL,
+  SentAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ID),
+  KEY idx_bale_proc (ProcessID),
+  KEY idx_bale_person (RecipientPersonnelID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='تاریخچه پیام‌های ارسال‌شده در بله';

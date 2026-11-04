@@ -24,6 +24,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../inc/hermes.php';
 require_once __DIR__ . '/../inc/files.php';
 require_once __DIR__ . '/../inc/pdf_generator.php';
+require_once __DIR__ . '/../inc/bale.php';
 
 $arg1 = $argv[1] ?? '--queue';
 $arg2 = $argv[2] ?? null;
@@ -117,6 +118,15 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
         $st->bind_param('sssiii', $notifTitle, $notifBody, $notifLink, $fromId, $procId, $teamId);
         $st->execute();
         $st->close();
+
+        // ارسال پیام خودکار به متولی در چارت سازمانی و مخاطبان اثرپذیر در پیام‌رسان بله
+        echo "   * Dispatching notifications to Org Chart owner & affected audience via Bale...\n";
+        $baleTitle = "تدوین و انتشار سند مصوب فرآیند «{$procName}» (نسخه {$newVer})";
+        $baleDesc = "عملیات بهینه‌سازی و تدوین سند رسمی PDF بر اساس پیشنهاد بهبود «{$impTitle}» توسط هوش مصنوعی هرمس با موفقیت پایان یافت و در پرونده ذخیره شد.";
+        $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, $pdfUrl, $teamId);
+        $sentCount = $baleRes['sent'] ?? 0;
+        $failedCount = $baleRes['failed'] ?? 0;
+        echo "   -> Bale dispatched: {$sentCount} sent, {$failedCount} failed.\n";
 
         echo "-> SUCCESS: Revision Task #{$taskId} completed. Version: {$newVer}, PDF: {$applyRes['pdf_name']}\n";
         return true;

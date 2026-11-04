@@ -9,20 +9,32 @@ $id = require_area('user');
 $db = app_db();
 
 $uid = (int)$id['id'];
+
+$userRow = $db->query("SELECT OrgPositionID, CompanyID FROM Personnel WHERE ID = {$uid}")->fetch_assoc();
+$userPosId = (int)($userRow['OrgPositionID'] ?? 0);
+$userCompId = (int)($userRow['CompanyID'] ?? 0);
+
 $st = $db->prepare(
-    "SELECT ch.*, p.Name AS ProcName, cat.Title AS CatTitle, imp.Title AS ImpTitle,
-            t.TeamName AS AppliedTeam
+    "SELECT DISTINCT ch.*, p.Name AS ProcName, p.AudienceType, cat.Title AS CatTitle, imp.Title AS ImpTitle,
+            t.TeamName AS AppliedTeam,
+            p.OwnerPositionID,
+            op.Title AS OwnerPosTitle,
+            op.CurrentPersonnelID AS OwnerPosPersonnelID
      FROM Changes ch
      JOIN Processes p ON p.ID = ch.ProcessID
      JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+     LEFT JOIN OrgPositions op ON op.ID = p.OwnerPositionID
      LEFT JOIN Improvements imp ON imp.ID = ch.ImprovementID
      LEFT JOIN ProcessTeams t ON t.ID = ch.AppliedByID AND ch.AppliedByType = 'team'
      WHERE (ch.AppliedByType='user' AND ch.AppliedByID = ?)
         OR p.OwnerPersonnelID = ?
+        OR (op.CurrentPersonnelID = ?)
         OR (imp.requester_type='user' AND imp.requester_id = ?)
+        OR (p.AudienceType = 'all_company' AND (p.CompanyID = ? OR p.CompanyID IS NULL))
+        OR (p.ID IN (SELECT ProcessID FROM ProcessAudience WHERE (TargetType='personnel' AND TargetID = ?) OR (TargetType='position' AND TargetID = ?)))
      ORDER BY ch.CreatedAt DESC"
 );
-$st->bind_param('iii', $uid, $uid, $uid);
+$st->bind_param('iiiiiii', $uid, $uid, $uid, $uid, $userCompId, $uid, $userPosId);
 $st->execute();
 $rows = [];
 $res = $st->get_result();
@@ -33,8 +45,11 @@ $st->close();
 function relation_reason(array $row, int $uid): string
 {
     if (($row['AppliedByType'] ?? '') === 'user' && (int)$row['AppliedByID'] === $uid) return 'اعمال‌کننده';
-    if (!empty($row['ImpTitle'])) return 'از بهبود شما';
-    return 'مالک فرآیند';
+    if (!empty($row['ImpTitle'])) return 'از پیشنهاد شما';
+    if (!empty($row['OwnerPosPersonnelID']) && (int)$row['OwnerPosPersonnelID'] === $uid) return 'متولی چارت (' . ($row['OwnerPosTitle'] ?? '') . ')';
+    if ((int)($row['OwnerPersonnelID'] ?? 0) === $uid) return 'مالک فرآیند';
+    if (($row['AudienceType'] ?? '') === 'all_company') return 'عمومی (پرسنل شرکت)';
+    return 'مخاطب اثرپذیر';
 }
 ?>
 <?php user_header($id, 'changes', 'تغییرات مرتبط با من'); ?>

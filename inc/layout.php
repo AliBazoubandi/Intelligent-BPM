@@ -208,6 +208,8 @@ function app_footer(): void
 function team_header(array $id, string $active, string $pageTitle): void
 {
     $basicsChildren = [
+        'basics_chart' => ['basics_chart.php', 'چارت سازمانی'],
+        'basics_bale' => ['basics_bale.php', 'پیام‌رسان بله'],
         'basics_companies' => ['basics_companies.php', 'ایجاد شرکت'],
         'basics_categories' => ['basics_categories.php', 'دسته فرآیند'],
         'basics_teammates' => ['basics_teammates.php', 'هم‌تیمی'],
