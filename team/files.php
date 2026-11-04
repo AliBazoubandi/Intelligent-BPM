@@ -438,14 +438,14 @@ $segments = $rel === '' ? [] : explode('/', $rel);
                         <td>
                             <div class="fm-row-actions">
                                 <a href="files.php?dir=<?= e(rawurlencode($childRel)) ?>" class="fm-act-btn" title="باز کردن پوشه">
-                                    <?= app_icon('search', '', 13) ?>
+                                    <?= app_icon('folder_open', '', 14) ?>
                                 </a>
                                 <?php if ($canWrite && !$locked): ?>
                                     <button type="button" class="fm-act-btn" onclick="openRenameModal('<?= e(addslashes($d['name'])) ?>', 'dir')" title="تغییر نام پوشه">
-                                        <?= app_icon('edit', '', 13) ?>
+                                        <?= app_icon('edit', '', 14) ?>
                                     </button>
                                     <button type="button" class="fm-act-btn danger" onclick="openDeleteDirModal('<?= e(addslashes($d['name'])) ?>', <?= $nonEmpty ? 'true' : 'false' ?>)" title="حذف پوشه">
-                                        <?= app_icon('trash', '', 13) ?>
+                                        <?= app_icon('trash', '', 14) ?>
                                     </button>
                                 <?php endif; ?>
                             </div>
@@ -480,15 +480,15 @@ $segments = $rel === '' ? [] : explode('/', $rel);
                         <td>
                             <div class="fm-row-actions">
                                 <a class="fm-act-btn" href="<?= e($url) ?>" target="_blank" rel="noopener" title="مشاهده / دانلود">
-                                    <?= app_icon('search', '', 13) ?>
+                                    <?= app_icon('download', '', 14) ?>
                                 </a>
                                 <?php if ($canWrite): ?>
                                     <button type="button" class="fm-act-btn" onclick="openRenameModal('<?= e(addslashes($f['name'])) ?>', 'file')" title="تغییر نام">
-                                        <?= app_icon('edit', '', 13) ?>
+                                        <?= app_icon('edit', '', 14) ?>
                                     </button>
                                     <?php if ($allDirs): ?>
                                         <button type="button" class="fm-act-btn" onclick="openMoveModal('<?= e(addslashes($f['name'])) ?>')" title="انتقال فایل">
-                                            <?= app_icon('reply', '', 13) ?>
+                                            <?= app_icon('reply', '', 14) ?>
                                         </button>
                                     <?php endif; ?>
                                     <form method="post" class="inline-form" onsubmit="return confirm('آیا از حذف فایل «<?= e(addslashes($f['name'])) ?>» مطمئن هستید؟');" style="margin:0">
@@ -497,7 +497,7 @@ $segments = $rel === '' ? [] : explode('/', $rel);
                                         <input type="hidden" name="dir" value="<?= e($rel) ?>">
                                         <input type="hidden" name="name" value="<?= e($f['name']) ?>">
                                         <button type="submit" class="fm-act-btn danger" title="حذف فایل">
-                                            <?= app_icon('trash', '', 13) ?>
+                                            <?= app_icon('trash', '', 14) ?>
                                         </button>
                                     </form>
                                 <?php endif; ?>
@@ -577,7 +577,7 @@ $segments = $rel === '' ? [] : explode('/', $rel);
 <div class="fm-modal-backdrop" id="fmRenameModal">
     <div class="fm-modal-box">
         <div class="fm-modal-header">
-            <h3 class="fm-modal-title" id="fmRenameTitle"><?= app_icon('edit', '', 18) ?> تغییر نام</h3>
+            <h3 class="fm-modal-title" id="fmRenameTitle"><?= app_icon('edit', '', 18) ?> <span id="fmRenameTitleText">تغییر نام</span></h3>
             <button type="button" class="fm-modal-close" onclick="closeFmModal('fmRenameModal')">&times;</button>
         </div>
         <form method="post" id="fmRenameForm">
@@ -708,7 +708,8 @@ function openRenameModal(name, kind) {
     if (actionInput) actionInput.value = (kind === 'dir') ? 'rename_dir' : 'rename_file';
     if (oldNameInput) oldNameInput.value = name;
     if (newNameInput) newNameInput.value = name;
-    if (titleEl) titleEl.innerText = 'تغییر نام ' + (kind === 'dir' ? 'پوشه' : 'فایل') + ' «' + name + '»';
+    const titleText = document.getElementById('fmRenameTitleText') || document.getElementById('fmRenameTitle');
+    if (titleText) titleText.textContent = 'تغییر نام ' + (kind === 'dir' ? 'پوشه' : 'فایل') + ' «' + name + '»';
 
     openFmModal('fmRenameModal');
 }
