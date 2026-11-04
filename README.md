@@ -1,8 +1,11 @@
+<p align="center">
+  <img src="assets/logo.png" alt="RabinFlow Logo" width="130">
+</p>
+
 # ⚡ RabinFlow (رابین‌فلو)
 
 > **سامانه هوشمند مدیریت و بهبود فرآیندهای سازمانی**  
-> *Intelligent Organizational Business Process Management (BPM) & Continuous Improvement System*  
-> Developed for **تیم هوش تجاری رهباریان رابین (Rahbarian Rabin BI Team)**
+> *Intelligent Organizational Business Process Management (BPM) & Continuous Improvement System*
 
 ---
 
@@ -25,7 +28,7 @@ It integrates an **Autonomous AI Agent (Hermes)** that acts as an impartial refe
   - Cross-process paradoxical checks, side-effect detection, and verdict generation (`approved` / `rejected` / `conditional`).
   - Automated official PDF guideline drafting, revision compiling, and version archiving.
 - **📱 Live Bale Messenger Integration (`inc/bale.php`)**:
-  - Automated notification dispatch via Palood API (`https://rbb.palood.ir/api_send.php`).
+  - Automated notification dispatch via Bale Messenger Gateway API (`https://api.example.com/api_send.php`).
   - Dynamic organizational chart lookups to notify process owners and affected personnel.
   - Direct message delivery with document links and compiled PDF attachment files.
 - **📁 Smart Process File Manager (`/team/files.php`)**:
@@ -50,7 +53,7 @@ It integrates an **Autonomous AI Agent (Hermes)** that acts as an impartial refe
 - **PHP**: 8.1+ (with `mysqli`, `curl`, `mbstring`, `json`)
 - **Database**: MySQL 8.0+ / MariaDB 10.4+
 - **AI Engine**: Hermes AI Agent (`http://127.0.0.1:8642/v1`)
-- **Messenger API**: Bale Messenger Gateway (via Palood Web Service)
+- **Messenger API**: Bale Messenger Gateway API
 - **Frontend**: Vanilla ES6 JavaScript, Modern CSS3 with Design Tokens, Mikhak Font
 - **Web Server**: Apache (`mod_rewrite` enabled) or PHP Built-in Server
 
@@ -76,7 +79,7 @@ HERMES_URL=http://127.0.0.1:8642/v1/chat/completions
 HERMES_KEY=your_hermes_key_here
 HERMES_MODEL=hermes-agent
 
-BALE_API_URL=https://rbb.palood.ir/api_send.php
+BALE_API_URL=https://api.example.com/api_send.php
 BALE_API_KEY=your_bale_api_key_here
 BALE_API_ENABLED=true
 ```

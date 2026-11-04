@@ -21,7 +21,7 @@ require_once __DIR__ . '/../config.php';
  */
 function bale_sanitize_url(?string $url, int $processId = 0): string
 {
-    $base = defined('APP_URL') && trim(APP_URL) !== '' ? rtrim(APP_URL, '/') : 'https://rbb.palood.ir';
+    $base = defined('APP_URL') && trim(APP_URL) !== '' ? rtrim(APP_URL, '/') : 'http://localhost:8000';
     if ($url === null || trim($url) === '') {
         return $base . ($processId > 0 ? '/user/processes.php?id=' . $processId : '');
     }
@@ -48,7 +48,7 @@ function bale_sanitize_url(?string $url, int $processId = 0): string
  * ارسال یک پیام به بله با استفاده از API
  *
  * مشخصات وب‌سرویس اختصاصی بر اساس cURL ارائه‌شده:
- * POST https://rbb.palood.ir/api_send.php
+ * POST https://api.example.com/api_send.php
  * Header: X-API-Key: <key>
  * Multipart Form Data:
  *   - phone: شماره تماس دریافت‌کننده

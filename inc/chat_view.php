@@ -114,7 +114,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
         <div class="ai-chat-hero">
             <div class="ai-hero-header">
                 <div class="ai-hero-icon">
-                    <?= app_icon('bot', '', 28) ?>
+                    <?= app_icon('hermes', 'hermes-hero-img', 52) ?>
                 </div>
                 <div class="ai-hero-title">
                     <h2>پرسش هوشمند از فرآیندهای سازمان (Process AI Chat)</h2>
@@ -152,7 +152,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
             <?php if (empty($chats)): ?>
                 <div class="card" id="emptyStateBox" style="text-align:center;padding:34px 20px">
                     <div class="empty">
-                        <span class="ico"><?= app_icon('bot', '', 40) ?></span>
+                        <span class="ico" style="display:inline-block;margin-bottom:12px"><?= app_icon('hermes', 'hermes-empty-avatar', 68) ?></span>
                         <p style="font-weight:600;font-size:15px;margin-bottom:6px">هنوز سوالی مطرح نکرده‌اید.</p>
                         <p style="color:var(--muted);font-size:13px;max-width:500px;margin:0 auto">
                             می‌توانید یکی از پرسش‌های پیشنهادی بالا را انتخاب کنید یا پرسش دلخواه خود را در کادر زیر بنویسید.
@@ -177,7 +177,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                     <!-- پیام هوش مصنوعی هرمس -->
                     <div class="chat-row chat-row-bot">
                         <div class="chat-avatar chat-avatar-bot">
-                            <?= app_icon('bot', '', 20) ?>
+                            <?= app_icon('hermes', 'chat-avatar-img', 38) ?>
                         </div>
                         <div class="chat-bubble chat-bubble-bot">
                             <div><?= nl2br(e($chat['AiResponse'])) ?></div>
@@ -247,6 +247,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
         const emptyState = document.getElementById('emptyStateBox');
         const processLinkPrefix = <?= json_encode($processLinkPrefix) ?>;
         const userNameInitial = <?= json_encode(mb_substr($id['name'], 0, 1)) ?>;
+        const hermesAvatarHtml = '<img src="' + <?= json_encode(BASE_URL . '/assets/hermes.webp') ?> + '" alt="هرمس" class="chat-avatar-img">';
 
         function scrollToBottom() {
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -296,7 +297,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
             typingRow.className = 'chat-row chat-row-bot';
             typingRow.id = 'typingIndicator';
             typingRow.innerHTML = `
-                <div class="chat-avatar chat-avatar-bot">🤖</div>
+                <div class="chat-avatar chat-avatar-bot">${hermesAvatarHtml}</div>
                 <div class="chat-typing-indicator">
                     <span>هرمس در حال جستجو در مستندات فرآیندها و پاسخگویی است</span>
                     <div class="typing-dots"><span></span><span></span><span></span></div>
@@ -353,7 +354,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                 const botRow = document.createElement('div');
                 botRow.className = 'chat-row chat-row-bot';
                 botRow.innerHTML = `
-                    <div class="chat-avatar chat-avatar-bot">🤖</div>
+                    <div class="chat-avatar chat-avatar-bot">${hermesAvatarHtml}</div>
                     <div class="chat-bubble chat-bubble-bot">
                         <div>${escapeHtml(data.answer).replace(/\n/g, '<br>')}</div>
                         ${sourcesHtml}

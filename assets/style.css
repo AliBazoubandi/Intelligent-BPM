@@ -1881,20 +1881,44 @@ a.fm-name { color: var(--brand-dark); }
     margin-bottom: 12px;
 }
 .ai-hero-icon {
-    width: 48px;
-    height: 48px;
+    width: 52px;
+    height: 52px;
     border-radius: 14px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
-    color: #fff;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    box-shadow: 0 4px 14px rgba(47,95,224,.18);
+    overflow: hidden;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 14px rgba(47,95,224,.3);
     flex-shrink: 0;
 }
+.ai-hero-icon img,
+.ai-hero-icon .hermes-avatar,
+.ai-hero-icon .hermes-hero-img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: cover !important;
+    border-radius: inherit !important;
+    display: block !important;
+    border: none !important;
+}
 .team-theme .ai-hero-icon {
-    background: linear-gradient(135deg, #0e8a6d 0%, #0a6b54 100%);
-    box-shadow: 0 4px 14px rgba(14,138,109,.3);
+    border-color: rgba(14,138,109,.25);
+    box-shadow: 0 4px 14px rgba(14,138,109,.2);
+}
+.hermes-empty-avatar {
+    width: 68px !important;
+    height: 68px !important;
+    border-radius: 18px !important;
+    object-fit: cover !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    border: 1px solid var(--line);
+    background: #ffffff;
+    display: inline-block !important;
 }
 .ai-hero-title h2 { margin: 0 0 3px; font-size: 18px; font-weight: 800; }
 .ai-hero-title p { margin: 0; font-size: 13px; color: var(--muted); }
@@ -1941,8 +1965,8 @@ a.fm-name { color: var(--brand-dark); }
     flex-direction: row-reverse;
 }
 .chat-avatar {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
     border-radius: 10px;
     display: flex;
     align-items: center;
@@ -1959,10 +1983,31 @@ a.fm-name { color: var(--brand-dark); }
     background: linear-gradient(135deg, #0e8a6d 0%, #0a6b54 100%);
 }
 .chat-avatar-bot {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
     background: #ffffff;
     border: 1px solid var(--line);
     color: var(--brand);
-    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    overflow: hidden;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.chat-avatar-bot img,
+.chat-avatar-bot .hermes-avatar,
+.chat-avatar-bot .chat-avatar-img {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: cover !important;
+    border-radius: inherit !important;
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 .team-theme .chat-avatar-bot {
     color: #0e8a6d;
@@ -2336,6 +2381,16 @@ a.fm-name { color: var(--brand-dark); }
 
 [data-theme="dark"] .ai-chat-hero {
     background: linear-gradient(135deg, rgba(19, 27, 46, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+    border-color: var(--line);
+}
+
+[data-theme="dark"] .ai-hero-icon {
+    background: var(--card);
+    border-color: var(--line);
+}
+
+[data-theme="dark"] .hermes-empty-avatar {
+    background: var(--card);
     border-color: var(--line);
 }
 

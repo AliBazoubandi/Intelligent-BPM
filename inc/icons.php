@@ -68,14 +68,14 @@ function app_icon(string $name, string $class = '', int $size = 18): string
             . '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'
             . '</svg>',
 
-        // ایجنت هوش مصنوعی هرمس (Hermes AI Agent)
-        'hermes', 'bot' => '<img src="' . (defined('BASE_URL') ? BASE_URL : '') . '/assets/hermes.webp" alt="هرمس" class="' . $cls . ' hermes-avatar" style="width:' . $s . 'px;height:' . $s . 'px;object-fit:cover;border-radius:50%;background:#ffffff;display:inline-block;vertical-align:middle;flex-shrink:0;">',
-
-        // ربات خطی پشتیبان (Vector Bot)
-        'bot_vector' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
+        // ربات هوش مصنوعی وکتور برای زبانه‌ها و هدر (Vector Bot for Tabs & Header)
+        'bot' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
             . '<rect x="4" y="8" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.5" fill="currentColor"/><circle cx="15" cy="13" r="1.5" fill="currentColor"/>'
             . '<path d="M12 2v4M8 2h8M2 14h2M20 14h2M9 17h6"/>'
             . '</svg>',
+
+        // آواتار هوش مصنوعی هرمس (Official Hermes AI Avatar Graphic)
+        'hermes' => '<img src="' . (defined('BASE_URL') ? BASE_URL : '') . '/assets/hermes.webp" alt="هرمس" class="' . $cls . ' hermes-avatar" style="width:' . $s . 'px;height:' . $s . 'px;object-fit:cover;border-radius:inherit;display:block;">',
 
         // رفرش / همگام‌سازی (Refresh / Sync)
         'refresh' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'

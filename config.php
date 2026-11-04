@@ -74,12 +74,12 @@ define('HERMES_TIMEOUT', (int)env('HERMES_TIMEOUT', 120));
 define('PHP_BIN', (string)env('PHP_BIN', ''));
 
 // تنظیمات اتصال به وب‌سرویس پیام‌رسان بله (Bale Messenger API)
-define('BALE_API_URL', (string)env('BALE_API_URL', 'https://rbb.palood.ir/api_send.php'));
+define('BALE_API_URL', (string)env('BALE_API_URL', 'https://api.example.com/api_send.php'));
 define('BALE_API_KEY', (string)env('BALE_API_KEY', ''));
 define('BALE_BOT_TOKEN', (string)env('BALE_BOT_TOKEN', ''));
 define('BALE_API_ENABLED', (bool)filter_var(env('BALE_API_ENABLED', true), FILTER_VALIDATE_BOOLEAN));
 define('BALE_TIMEOUT', (int)env('BALE_TIMEOUT', 15));
-define('APP_URL', (string)env('APP_URL', 'https://rbb.palood.ir'));
+define('APP_URL', (string)env('APP_URL', 'http://localhost:8000'));
 
 if (!defined('BASE_URL')) {
     if (PHP_SAPI === 'cli') {
