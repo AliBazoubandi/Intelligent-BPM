@@ -77,6 +77,28 @@ if (!$isOwner) {
     exit;
 }
 
+// شروع آنی و غیراسنکرون کار در پس‌زمینه بدون هیچ‌گونه معطلی کاربر در مرورگر
+if ((isset($_GET['action']) && $_GET['action'] === 'start_async') || (isset($_POST['action']) && $_POST['action'] === 'start_async')) {
+    $stT = $db->prepare("SELECT ID FROM HermesTasks WHERE TaskType = 'revision' AND RefID = ? AND Status IN ('queued', 'running') ORDER BY ID DESC LIMIT 1");
+    $stT->bind_param('i', $impId);
+    $stT->execute();
+    $existing = $stT->get_result()->fetch_assoc();
+    $stT->close();
+
+    $taskId = $existing ? (int)$existing['ID'] : hermes_dispatch_async_revision($db, $impId, $tid, null);
+    header('Location: revision.php?imp=' . $impId . '&task=' . $taskId);
+    exit;
+}
+
+// دریافت پیش‌نویس گام‌ها از هرمس با درخواست اختیاری AJAX بدون بلاک کردن صفحه
+if (isset($_GET['ajax_draft'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    @set_time_limit(60);
+    $draftRes = hermes_draft_procedure_revision($db, $impId);
+    echo json_encode($draftRes, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $notice = '';
 $error = '';
 
@@ -161,15 +183,20 @@ $isTaskActive = ($currentTask && in_array($currentTask['Status'], ['queued', 'ru
 $isTaskCompleted = ($currentTask && $currentTask['Status'] === 'completed');
 $taskResult = ($isTaskCompleted && !empty($currentTask['Result'])) ? json_decode($currentTask['Result'], true) : null;
 
-// پیش‌نویس اولیه هرمس
-$draft = null;
-if (!$isTaskActive && !$isTaskCompleted && $imp['Status'] !== 'implemented') {
-    @set_time_limit(45);
-    $draftRes = hermes_draft_procedure_revision($db, $impId);
-    if ($draftRes['success']) {
-        $draft = $draftRes['revision'];
-    }
-}
+// پیش‌نویس پیش‌فرض غیرمسدودکننده (Instant non-blocking default draft)
+$currVer = $imp['CurrentVersion'] ?? '1.0';
+$parts = explode('.', $currVer);
+$major = (int)($parts[0] ?? 1);
+$minor = (int)($parts[1] ?? 0) + 1;
+$nextVer = $major . '.' . $minor;
+
+$draft = [
+    'new_version' => $nextVer,
+    'change_summary' => $imp['Title'],
+    'purpose' => 'بهبود و بازنگری فرآیند بر اساس پیشنهاد مصوب #' . $impId,
+    'optimization_impact' => $imp['Description'] ?? '',
+    'steps' => [],
+];
 
 $pageTitle = 'بازنویسی مستند فرآیند با هرمس: ' . $imp['ProcName'];
 team_header($id, 'discussion', $pageTitle);

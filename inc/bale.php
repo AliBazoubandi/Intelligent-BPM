@@ -13,6 +13,38 @@
 require_once __DIR__ . '/../config.php';
 
 /**
+ * استانداردسازی و اعتبارسنجی آدرس اینترنتی پیوند برای وب‌سرویس بله (RFC 3986)
+ *
+ * @param string|null $url آدرس نسبی یا کامل
+ * @param int $processId شناسه فرآیند در صورت نیاز به پیوند جایگزین
+ * @return string آدرس اینترنتی کامل و معتبر
+ */
+function bale_sanitize_url(?string $url, int $processId = 0): string
+{
+    $base = defined('APP_URL') && trim(APP_URL) !== '' ? rtrim(APP_URL, '/') : 'https://rbb.palood.ir';
+    if ($url === null || trim($url) === '') {
+        return $base . ($processId > 0 ? '/user/processes.php?id=' . $processId : '');
+    }
+    $url = trim($url);
+    if (!preg_match('#^https?://#i', $url)) {
+        $url = $base . '/' . ltrim($url, '/');
+    }
+    // جلوگیری از انکود مضاعف (Double-encoding) کاراکترها
+    $url = rawurldecode($url);
+    $parsed = parse_url($url);
+    if ($parsed && isset($parsed['scheme'], $parsed['host'])) {
+        $path = isset($parsed['path']) ? implode('/', array_map('rawurlencode', explode('/', $parsed['path']))) : '';
+        $path = str_replace(['%2F', '%3A'], ['/', ':'], $path);
+        $query = isset($parsed['query']) ? '?' . $parsed['query'] : '';
+        $normalized = $parsed['scheme'] . '://' . $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '') . $path . $query;
+        if (filter_var($normalized, FILTER_VALIDATE_URL)) {
+            return $normalized;
+        }
+    }
+    return $base . ($processId > 0 ? '/user/processes.php?id=' . $processId : '');
+}
+
+/**
  * ارسال یک پیام به بله با استفاده از API
  *
  * مشخصات وب‌سرویس اختصاصی بر اساس cURL ارائه‌شده:
@@ -51,27 +83,32 @@ function bale_send_message(
         ];
     }
 
+    $processId = !empty($meta['process_id']) ? (int)$meta['process_id'] : null;
+    $persId    = !empty($meta['personnel_id']) ? (int)$meta['personnel_id'] : null;
+    $recName   = $meta['recipient_name'] ?? null;
+    $recPos    = $meta['recipient_position'] ?? null;
+
     $apiUrl = (string)BALE_API_URL;
     $apiKey = defined('BALE_API_KEY') ? trim((string)BALE_API_KEY) : '';
-    $linkUrl = $link ?? ($meta['link'] ?? '');
+
+    $rawLink = $link ?? ($meta['link'] ?? null);
+    $linkUrl = ($rawLink !== null && trim($rawLink) !== '') ? bale_sanitize_url($rawLink, $processId ?: 0) : '';
+
     $attachFile = $attachmentPath ?? ($meta['attachment'] ?? null);
     $attachType = $attachmentType ?? ($meta['attachment_type'] ?? 'document');
 
     $postFields = [
         'phone'           => $phone,
         'message'         => $text,
-        'link'            => (string)$linkUrl,
         'attachment_type' => (string)$attachType,
     ];
+    if ($linkUrl !== '') {
+        $postFields['link'] = $linkUrl;
+    }
 
     if (!empty($attachFile) && file_exists($attachFile)) {
         $postFields['attachment'] = new CURLFile($attachFile);
     }
-
-    $processId = !empty($meta['process_id']) ? (int)$meta['process_id'] : null;
-    $persId    = !empty($meta['personnel_id']) ? (int)$meta['personnel_id'] : null;
-    $recName   = $meta['recipient_name'] ?? null;
-    $recPos    = $meta['recipient_position'] ?? null;
 
     // در صورتی که ارسال به بله موقتاً غیرفعال باشد، لاگ شبیه‌سازی ثبت می‌شود
     if (!BALE_API_ENABLED) {
@@ -391,7 +428,8 @@ function bale_notify_process_change(
     string $changeDescription,
     ?string $processLink = null,
     ?int $fromTeamId = null,
-    ?int $requesterPersonnelId = null
+    ?int $requesterPersonnelId = null,
+    ?string $explicitAttachmentPath = null
 ): array {
     $info = bale_get_process_recipients($db, $processId, $requesterPersonnelId);
     if (empty($info['found'])) {
@@ -404,12 +442,8 @@ function bale_notify_process_change(
     $catTitle = $proc['CatTitle'] ?? 'دسته‌بندی';
     $owner    = $info['owner_info'];
 
-    // لینک مستقیم
-    $link = $processLink;
-    if (!$link) {
-        $base = defined('BASE_URL') ? BASE_URL : '';
-        $link = $base . '/user/processes.php?id=' . $processId;
-    }
+    // لینک مستقیم معتبر و استاندارد
+    $link = bale_sanitize_url($processLink, $processId);
 
     $ownerSummary = $owner ? "{$owner['position_title']} ({$owner['name']})" : 'تعیین‌نشده';
     $audienceLabel = match ($info['audience_type']) {
@@ -436,9 +470,11 @@ function bale_notify_process_change(
     $template .= "━━━━━━━━━━━━━━━━━━━━━\n";
     $template .= "سامانه هوشمند مدیریت و بهبود فرآیندهای رابین‌فلو";
 
-    // بررسی وجود فایل مستندات فرآیند جهت پیوست کردن در پیام بله (-F attachment=@... -F attachment_type=document)
+    // بررسی وجود فایل مستندات فرآیند جهت پیوست کردن در پیام بله
     $attachmentPath = null;
-    if (!empty($proc['FilePath'])) {
+    if (!empty($explicitAttachmentPath) && file_exists($explicitAttachmentPath)) {
+        $attachmentPath = $explicitAttachmentPath;
+    } elseif (!empty($proc['FilePath'])) {
         $candidate = APP_ROOT . DIRECTORY_SEPARATOR . 'processes' . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $proc['FilePath']), DIRECTORY_SEPARATOR);
         if (is_file($candidate)) {
             $attachmentPath = $candidate;
@@ -501,11 +537,11 @@ function bale_notify_process_change(
             'error'     => $res['error'],
         ];
 
-        // ثبت اعلان درون‌برنامه‌ای رابین‌فلو نیز برای شخص
-        if (!empty($rec['personnel_id'])) {
+        // فقط در صورتیکه شخص پیشنهاددهنده بهبود باشد، یک اعلان شخصی درون‌برنامه‌ای برای او ثبت می‌شود (نه اعلان‌های تکراری برای کل سازمان)
+        if ($role === 'requester' && !empty($rec['personnel_id'])) {
             try {
-                $notifTitle = "تغییر در فرآیند «{$procName}» (نسخه {$version})";
-                $notifBody = "تغییر جدید: {$changeTitle}" . (trim($changeDescription) !== '' ? " — " . mb_substr($changeDescription, 0, 100) : '');
+                $notifTitle = "پیشنهاد بهبود شما در فرآیند «{$procName}» اعمال شد";
+                $notifBody = "پیشنهاد بهبود «{$changeTitle}» مصوب و سند رسمی فرآیند (نسخه {$version}) منتشر گردید.";
                 $stN = $db->prepare(
                     "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority)
                      VALUES (?, ?, ?, 'team', ?, ?, ?, 'high')"

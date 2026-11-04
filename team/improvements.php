@@ -225,7 +225,7 @@ if ($stCount) {
                                     <span>در حال بازنویسی...</span>
                                 </a>
                             <?php else: ?>
-                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
+                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>&action=start_async" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
                                     <?= app_icon('bot', '', 12) ?>
                                     <span>بازنویسی سند</span>
                                 </a>

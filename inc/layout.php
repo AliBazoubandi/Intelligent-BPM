@@ -220,7 +220,7 @@ function team_header(array $id, string $active, string $pageTitle): void
     $notifCount = 0;
     try {
         $db = app_db();
-        $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0");
+        $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0");
         $cntSt->bind_param('i', $tid);
         $cntSt->execute();
         $notifCount = (int)($cntSt->get_result()->fetch_assoc()['c'] ?? 0);

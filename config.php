@@ -79,6 +79,7 @@ define('BALE_API_KEY', (string)env('BALE_API_KEY', ''));
 define('BALE_BOT_TOKEN', (string)env('BALE_BOT_TOKEN', ''));
 define('BALE_API_ENABLED', (bool)filter_var(env('BALE_API_ENABLED', true), FILTER_VALIDATE_BOOLEAN));
 define('BALE_TIMEOUT', (int)env('BALE_TIMEOUT', 15));
+define('APP_URL', (string)env('APP_URL', 'https://rbb.palood.ir'));
 
 if (!defined('BASE_URL')) {
     if (PHP_SAPI === 'cli') {

@@ -19,7 +19,7 @@ if (isset($_GET['check_unread'])) {
     $st = $db->prepare(
         "SELECT ID, Title, Body, Link, Priority, SentAt 
          FROM Notifications 
-         WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0 
+         WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0 
          ORDER BY ID DESC LIMIT 5"
     );
     $st->bind_param('i', $tid);
@@ -27,7 +27,7 @@ if (isset($_GET['check_unread'])) {
     $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
     $st->close();
 
-    $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0");
+    $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0");
     $cntSt->bind_param('i', $tid);
     $cntSt->execute();
     $unreadCount = (int)($cntSt->get_result()->fetch_assoc()['c'] ?? 0);
@@ -58,7 +58,7 @@ if (isset($_REQUEST['mark_read_ajax'])) {
         $st->close();
     }
 
-    $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0");
+    $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0");
     $cntSt->bind_param('i', $tid);
     $cntSt->execute();
     $unreadCount = (int)($cntSt->get_result()->fetch_assoc()['c'] ?? 0);
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (csrf_check($_POST['csrf'] ?? null)) {
         $action = (string)($_POST['action'] ?? '');
         if ($action === 'mark_all_read') {
-            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE (TargetTeamID = ? OR TargetTeamID IS NULL) AND IsRead = 0");
+            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0");
             $st->bind_param('i', $tid);
             $st->execute();
             $st->close();
@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } elseif ($action === 'mark_read') {
             $notifId = (int)($_POST['notif_id'] ?? 0);
-            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE ID = ? AND (TargetTeamID = ? OR TargetTeamID IS NULL)");
+            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE ID = ? AND (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL))");
             $st->bind_param('ii', $notifId, $tid);
             $st->execute();
             $st->close();
@@ -100,7 +100,7 @@ $st = $db->prepare(
     "SELECT n.*, p.Name AS ProcName 
      FROM Notifications n
      LEFT JOIN Processes p ON p.ID = n.ProcessID
-     WHERE n.TargetTeamID = ? OR n.TargetTeamID IS NULL
+     WHERE n.TargetTeamID = ? OR (n.TargetTeamID IS NULL AND n.TargetPersonnelID IS NULL)
      ORDER BY n.ID DESC LIMIT 100"
 );
 $st->bind_param('i', $tid);

@@ -789,7 +789,7 @@ $currentAudType = $proc['AudienceType'] ?? 'all_company';
                                     <span>در حال بازنویسی...</span>
                                 </a>
                             <?php elseif ($isOwnerTeam): ?>
-                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:4px">
+                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>&action=start_async" style="display:inline-flex;align-items:center;gap:4px">
                                     <?= app_icon('bot', '', 12) ?>
                                     <span>بازنویسی سند</span>
                                 </a>

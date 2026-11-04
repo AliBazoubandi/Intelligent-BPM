@@ -153,7 +153,7 @@ if ($impId > 0) {
                         <span>هرمس در حال بازنویسی در پس‌زمینه... (مشاهده وضعیت)</span>
                     </a>
                 <?php elseif ($isOwnerTeam && $imp['Status'] !== 'implemented'): ?>
-                    <a class="btn btn-brand btn-sm" href="revision.php?imp=<?= $impId ?>" style="display:inline-flex;align-items:center;gap:6px">
+                    <a class="btn btn-brand btn-sm" href="revision.php?imp=<?= $impId ?>&action=start_async" style="display:inline-flex;align-items:center;gap:6px">
                         <?= app_icon('bot', '', 15) ?>
                         <span>اعمال بهبود و بازنویسی سند با هرمس</span>
                     </a>

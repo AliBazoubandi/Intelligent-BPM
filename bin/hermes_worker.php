@@ -124,7 +124,10 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
         echo "   * Dispatching notifications to Org Chart owner, affected audience & requester via Bale...\n";
         $baleTitle = "تدوین و انتشار سند مصوب فرآیند «{$procName}» (نسخه {$newVer})";
         $baleDesc = "عملیات بهینه‌سازی و تدوین سند رسمی PDF بر اساس پیشنهاد بهبود «{$impTitle}» توسط هوش مصنوعی هرمس با موفقیت پایان یافت و در پرونده ذخیره شد.";
-        $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, $pdfUrl, $teamId, $reqPersId);
+        $pdfRel = $applyRes['pdf_rel'] ?? '';
+        $pdfFullPath = !empty($pdfRel) ? (APP_ROOT . DIRECTORY_SEPARATOR . 'processes' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $pdfRel)) : null;
+        $safeProcessLink = bale_sanitize_url($applyRes['pdf_url'] ?? '', $procId);
+        $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, $safeProcessLink, $teamId, $reqPersId, $pdfFullPath);
         $sentCount = $baleRes['sent'] ?? 0;
         $failedCount = $baleRes['failed'] ?? 0;
         echo "   -> Bale dispatched: {$sentCount} sent, {$failedCount} failed.\n";
