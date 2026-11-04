@@ -324,14 +324,15 @@ function bale_get_process_recipients(mysqli $db, int $processId, ?int $requester
         if ($pId) {
             $seenPersonnel[$pId] = true;
         }
+        $isRequester = ($requesterPersonnelId > 0 && $pId === $requesterPersonnelId);
         $merged[] = [
             'personnel_id' => $pId,
             'name'         => $aud['name'],
             'position'     => $aud['position'],
             'bale_chat_id' => $aud['bale_chat_id'],
             'phone'        => $aud['phone'],
-            'role'         => 'audience',
-            'role_label'   => $aud['reason'],
+            'role'         => $isRequester ? 'requester' : 'audience',
+            'role_label'   => $isRequester ? 'پیشنهاددهنده بهبود (کاربر درخواست‌کننده)' : $aud['reason'],
         ];
     }
 
