@@ -6,13 +6,17 @@
 @import url("mikhak.css");
 
 :root {
-    color-scheme: light dark;
+    color-scheme: light;
     --font-sans: "Mikhak", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif;
     --bg: #f3f5fa;
     --card: #ffffff;
     --ink: #17233b;
     --muted: #6c7793;
     --line: #e4e8f2;
+    --input-bg: #ffffff;
+    --input-border: #cbd5e1;
+    --input-ink: #17233b;
+    --input-placeholder: #94a3b8;
     --brand: #2f5fe0;
     --brand-dark: #21409f;
     --brand-soft: #e9efff;
@@ -31,6 +35,20 @@
     --table-row-hover: #f1f5fd;
 }
 
+html[data-theme="light"],
+[data-theme="light"] {
+    color-scheme: light !important;
+    --bg: #f3f5fa;
+    --card: #ffffff;
+    --ink: #17233b;
+    --muted: #6c7793;
+    --line: #e4e8f2;
+    --input-bg: #ffffff;
+    --input-border: #cbd5e1;
+    --input-ink: #17233b;
+    --input-placeholder: #94a3b8;
+}
+
 .team-theme {
     --brand: #0e8a6d;
     --brand-dark: #0a6b54;
@@ -43,12 +61,16 @@
 :root:has(> head > meta[name="color-scheme"][content="dark"]),
 html[data-theme="dark"],
 [data-theme="dark"] {
-    color-scheme: dark;
+    color-scheme: dark !important;
     --bg: #0e1322;
     --card: #151d32;
     --ink: #f8fafc;
     --muted: #94a3b8;
     --line: #263350;
+    --input-bg: #0f172a;
+    --input-border: #263350;
+    --input-ink: #f8fafc;
+    --input-placeholder: #64748b;
     --brand: #3b82f6;
     --brand-dark: #60a5fa;
     --brand-soft: rgba(59, 130, 246, 0.16);
@@ -847,28 +869,160 @@ td .title { font-weight: 700; }
 td .sub { font-size: 12px; color: var(--muted); }
 .num-ltr { direction: ltr; display: inline-block; }
 
-/* فرم‌ها */
+/* فرم‌ها و ورودی‌ها */
 .field { display: block; margin-bottom: 14px; }
 .field-label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
-.field input[type=text], .field input[type=password], .field input[type=search],
-.field select, .field textarea {
-    width: 100%;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: #fbfcfe;
-    padding: 10px 13px;
-    font: inherit;
-    color: var(--ink);
-    transition: border-color .15s ease, box-shadow .15s ease;
+
+/* ورودی‌های فرم استاندارد (Universal Input & Control Styling) */
+input[type="text"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+select,
+textarea {
+    font-family: inherit;
+    font-size: 13.5px;
+    background-color: var(--input-bg, #ffffff);
+    color: var(--input-ink, var(--ink));
+    border: 1px solid var(--input-border, var(--line));
+    border-radius: 9px;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
 }
+
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="search"],
+.field input[type="url"],
+.field input[type="email"],
+.field input[type="tel"],
+.field input[type="number"],
+.field input[type="date"],
+.field select,
+.field textarea {
+    width: 100%;
+    padding: 10px 13px;
+    border-radius: 10px;
+}
+
 .field textarea { min-height: 96px; resize: vertical; }
-.field input:focus, .field select:focus, .field textarea:focus {
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="email"]:focus,
+input[type="tel"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+select:focus,
+textarea:focus {
     outline: none;
     border-color: var(--brand);
-    box-shadow: 0 0 0 4px var(--brand-soft);
-    background: #fff;
+    box-shadow: 0 0 0 3.5px var(--brand-soft);
+    background-color: var(--card, #ffffff);
 }
-::placeholder { color: #a9b2c7; }
+
+select option {
+    background-color: var(--card, #ffffff);
+    color: var(--ink);
+}
+
+[data-theme="dark"] select option {
+    background-color: #151d32;
+    color: #f8fafc;
+}
+
+::placeholder {
+    color: var(--input-placeholder, #94a3b8);
+    opacity: 1;
+}
+
+/* چک‌باکس و رادیو دکمه‌های تمیز و هماهنگ با تم روشن و تاریک */
+input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--input-border, #cbd5e1);
+    border-radius: 5px;
+    background-color: var(--card, #ffffff);
+    display: inline-grid;
+    place-content: center;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: all 0.15s ease;
+    margin: 0;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+input[type="checkbox"]:hover {
+    border-color: var(--brand);
+}
+input[type="checkbox"]:checked {
+    background-color: var(--brand);
+    border-color: var(--brand);
+}
+input[type="checkbox"]:checked::before {
+    content: "";
+    width: 8px;
+    height: 4.5px;
+    border-left: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    transform: rotate(-45deg) translate(0.5px, -0.5px);
+}
+[data-theme="dark"] input[type="checkbox"] {
+    border-color: #3b4968;
+    background-color: #0f172a;
+}
+[data-theme="dark"] input[type="checkbox"]:checked {
+    background-color: var(--brand);
+    border-color: var(--brand);
+}
+
+input[type="radio"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--input-border, #cbd5e1);
+    border-radius: 50%;
+    background-color: var(--card, #ffffff);
+    display: inline-grid;
+    place-content: center;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: all 0.15s ease;
+    margin: 0;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+input[type="radio"]:hover {
+    border-color: var(--brand);
+}
+input[type="radio"]:checked {
+    border-color: var(--brand);
+    background-color: var(--card, #ffffff);
+}
+input[type="radio"]:checked::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--brand);
+}
+[data-theme="dark"] input[type="radio"] {
+    border-color: #3b4968;
+    background-color: #0f172a;
+}
+[data-theme="dark"] input[type="radio"]:checked {
+    border-color: var(--brand);
+}
 
 .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -2026,22 +2180,30 @@ a.fm-name { color: var(--brand-dark); }
     background: rgba(255, 255, 255, 0.03);
 }
 
-[data-theme="dark"] .field input[type=text],
-[data-theme="dark"] .field input[type=password],
-[data-theme="dark"] .field input[type=search],
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="search"],
+[data-theme="dark"] input[type="url"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="tel"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] select,
+[data-theme="dark"] textarea,
+[data-theme="dark"] .field input,
 [data-theme="dark"] .field select,
 [data-theme="dark"] .field textarea,
 [data-theme="dark"] .fm-actions input[type=text],
 [data-theme="dark"] .fm-actions select {
-    background: #0f172a;
-    border-color: var(--line);
-    color: var(--ink);
+    background-color: var(--input-bg, #0f172a);
+    border-color: var(--input-border, #263350);
+    color: var(--input-ink, #f8fafc);
 }
 
-[data-theme="dark"] .field input:focus,
-[data-theme="dark"] .field select:focus,
-[data-theme="dark"] .field textarea:focus {
-    background: #111c34;
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+    background-color: #111c34;
     border-color: var(--brand);
     box-shadow: 0 0 0 3px rgba(79, 125, 245, 0.25);
 }

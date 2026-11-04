@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title RobinFlow Server
+title RabinFlow Server
 cd /d "%~dp0"
 
 :: 1. Find PHP binary
@@ -13,14 +13,14 @@ if %errorlevel% neq 0 (
         set "PHP_CMD=C:\php\php.exe"
     ) else (
         echo [ERROR] PHP executable was not found in your system PATH or C:\xampp\php\php.exe.
-        echo Please install or configure PHP to run RobinFlow.
+        echo Please install or configure PHP to run RabinFlow.
         echo.
         pause
         exit /b 1
     )
 )
 
-:: 2. Launch RobinFlow Server via runner
+:: 2. Launch RabinFlow Server via runner
 "%PHP_CMD%" bin\serve.php %*
 
 if %errorlevel% neq 0 (

@@ -320,7 +320,7 @@ $csrf = csrf_token();
         <input type="hidden" name="action" value="set_status">
         <input type="hidden" name="tab" value="info">
         <span class="field-label" style="margin:0">تغییر وضعیت:</span>
-        <select name="status" style="padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+        <select name="status" style="padding:6px 10px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;background:var(--input-bg);color:var(--ink)">
             <option value="draft">پیش‌نویس</option>
             <option value="active" <?= $proc['Status'] === 'active' ? 'selected' : '' ?>>فعال</option>
             <option value="archived">بایگانی</option>
@@ -538,7 +538,7 @@ $currentAudType = $proc['AudienceType'] ?? 'all_company';
                 <input type="hidden" name="tab" value="audience">
                 <input type="hidden" name="target_type" value="position">
                 <span class="field-label" style="margin:0">افزودن سمت اثرپذیر:</span>
-                <select name="target_id" id="targetPosSelect" onchange="updateTargetName(this)" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+                <select name="target_id" id="targetPosSelect" onchange="updateTargetName(this)" style="padding:6px 12px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;background:var(--input-bg);color:var(--ink)">
                     <option value="0">— انتخاب سمت از چارت —</option>
                     <?php foreach ($allOrgPositions as $p): ?>
                         <option value="<?= (int)$p['ID'] ?>" data-name="<?= e($p['Title']) ?>">
@@ -592,7 +592,7 @@ $currentAudType = $proc['AudienceType'] ?? 'all_company';
                 <input type="hidden" name="tab" value="audience">
                 <input type="hidden" name="target_type" value="personnel">
                 <span class="field-label" style="margin:0">افزودن فرد اثرپذیر:</span>
-                <select name="target_id" id="targetPersSelect" onchange="updatePersTargetName(this)" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;font:inherit">
+                <select name="target_id" id="targetPersSelect" onchange="updatePersTargetName(this)" style="padding:6px 12px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;background:var(--input-bg);color:var(--ink)">
                     <option value="0">— انتخاب پرسنل —</option>
                     <?php foreach ($allPersonnel as $pers): ?>
                         <option value="<?= (int)$pers['ID'] ?>" data-name="<?= e($pers['Name'] . ' ' . $pers['Family']) ?>">

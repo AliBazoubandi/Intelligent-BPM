@@ -1,4 +1,4 @@
-# RobinFlow PowerShell Launcher
+# RabinFlow PowerShell Launcher
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 

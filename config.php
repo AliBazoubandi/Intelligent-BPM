@@ -1,6 +1,6 @@
 <?php
 /**
- * تنظیمات پایه سامانه رابین‌فلو (RobinFlow)
+ * تنظیمات پایه سامانه رابین‌فلو (RabinFlow)
  * سامانه مدیریت و بهبود فرآیندهای سازمان — هوش تجاری رهباریان رابین
  * ساختار: /user (کاربران) | /team (تیم‌های فرآیند) | /processes (فایل‌های فرآیند)
  */
@@ -55,7 +55,7 @@ function env(string $key, mixed $default = null): mixed
 // بارگذاری تنظیمات از .env
 load_env(APP_ROOT . DIRECTORY_SEPARATOR . '.env');
 
-define('APP_NAME', (string)env('APP_NAME', 'RobinFlow'));
+define('APP_NAME', (string)env('APP_NAME', 'RabinFlow'));
 define('APP_TITLE_FA', 'رابین‌فلو');
 
 // دیتابیس

@@ -170,7 +170,7 @@ $csrf = csrf_token();
 
             <label class="field" style="margin-bottom:12px">
                 <span class="field-label">لینک پیوست اختیاری (link)</span>
-                <input type="url" name="test_link" placeholder="https://example.com/process/123" class="num-ltr" value="<?= e($_POST['test_link'] ?? '') ?>" style="text-align:left">
+                <input type="url" name="test_link" placeholder="https://example.com/process/123" class="num-ltr" value="<?= e($_POST['test_link'] ?? '') ?>" style="text-align:left;background:var(--input-bg);color:var(--ink)">
             </label>
 
             <button type="submit" class="btn btn-sm">

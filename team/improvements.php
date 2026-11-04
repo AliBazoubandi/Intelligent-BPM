@@ -201,7 +201,7 @@ if ($stCount) {
                                 <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
                                 <input type="hidden" name="action" value="set_status">
                                 <input type="hidden" name="imp_id" value="<?= (int)$m['ID'] ?>">
-                                <select name="status" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px">
+                                <select name="status" style="padding:5px 8px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;font-size:12.5px;background:var(--input-bg);color:var(--ink)">
                                     <?php foreach (['pending','accepted','rejected','implemented'] as $sOpt): ?>
                                         <option value="<?= $sOpt ?>" <?= $m['Status'] === $sOpt ? 'selected' : '' ?>><?= status_label($sOpt) ?></option>
                                     <?php endforeach; ?>
@@ -236,7 +236,7 @@ if ($stCount) {
                             <input type="hidden" name="action" value="reply">
                             <input type="hidden" name="imp_id" value="<?= (int)$m['ID'] ?>">
                             <input type="text" name="body" maxlength="1000" placeholder="پاسخ سریع…" required
-                                   style="flex:1;min-width:130px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px">
+                                   style="flex:1;min-width:130px;padding:6px 10px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;font-size:12.5px;background:var(--input-bg);color:var(--ink)">
                             <button class="btn btn-ghost btn-xs" title="ارسال پاسخ"><?= app_icon('reply', '', 13) ?></button>
                         </form>
                         <?php else: ?>—<?php endif; ?>

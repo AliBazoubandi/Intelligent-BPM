@@ -1,6 +1,6 @@
 <?php
 /**
- * RobinFlow - Local Development Server Launcher
+ * RabinFlow - Local Development Server Launcher
  * 
  * Automatically verifies prerequisites, starts MySQL if needed,
  * checks Hermes AI agent, opens browser, and runs the PHP built-in web server.
@@ -30,7 +30,7 @@ require_once $rootDir . '/inc/hermes.php';
 
 $options = getopt('', ['no-browser', 'port::', 'help']);
 if (isset($options['help'])) {
-    echo "RobinFlow Development Server Launcher\n";
+    echo "RabinFlow Development Server Launcher\n";
     echo "Usage: php bin/serve.php [--port=8000] [--no-browser]\n";
     exit(0);
 }
@@ -43,7 +43,7 @@ $autoOpenBrowser = !isset($options['no-browser']);
 
 echo "\n";
 echo "====================================================================\n";
-echo "          ⚡ RobinFlow (رابین‌فلو) - Server Launcher ⚡          \n";
+echo "          ⚡ RabinFlow (رابین‌فلو) - Server Launcher ⚡          \n";
 echo "   Intelligent Business Process Management & Continuous Improvement \n";
 echo "====================================================================\n\n";
 
@@ -129,7 +129,7 @@ if ($hermesAvailable) {
 echo "\n";
 
 // 4. Verify Port & Launch Server
-echo "[4/4] Starting RobinFlow Web Application...\n";
+echo "[4/4] Starting RabinFlow Web Application...\n";
 
 // Check if port is already active
 $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 1);
@@ -144,7 +144,7 @@ $userUrl = "{$hostUrl}/user/";
 $teamUrl = "{$hostUrl}/team/";
 
 echo "====================================================================\n";
-echo "                    RobinFlow Testing Portals                       \n";
+echo "                    RabinFlow Testing Portals                       \n";
 echo "====================================================================\n";
 echo "  🌐 Main Landing:      {$hostUrl}/\n\n";
 echo "  👤 User / Employee:   {$userUrl}\n";
@@ -160,7 +160,7 @@ echo "====================================================================\n\n";
 
 // Automatically open browser
 if ($autoOpenBrowser) {
-    echo "Opening RobinFlow in your default browser...\n";
+    echo "Opening RabinFlow in your default browser...\n";
     if (stripos(PHP_OS, 'WIN') === 0) {
         @pclose(@popen("start {$hostUrl}/", 'r'));
     } elseif (stripos(PHP_OS, 'DAR') === 0) {
@@ -171,7 +171,7 @@ if ($autoOpenBrowser) {
 }
 
 if ($alreadyRunning) {
-    echo "\n[INFO] RobinFlow is already running and serving requests on port {$port}.\n";
+    echo "\n[INFO] RabinFlow is already running and serving requests on port {$port}.\n";
     echo "Keeping session alive. Press Ctrl+C to exit.\n";
     while (true) {
         sleep(2);

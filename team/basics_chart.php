@@ -206,7 +206,7 @@ $csrf = csrf_token();
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
         <h2 style="margin:0">سمت‌های سازمانی و شاغلین (<?= farsi_num($totalPositions) ?>)</h2>
         <div style="display:flex;align-items:center;gap:8px">
-            <input type="text" id="chartSearchInput" placeholder="جستجوی سمت یا شاغل…" oninput="filterChartTable()" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;min-width:200px">
+            <input type="text" id="chartSearchInput" placeholder="جستجوی سمت یا شاغل…" oninput="filterChartTable()" style="padding:6px 12px;border:1px solid var(--input-border, var(--line));border-radius:8px;font:inherit;font-size:12.5px;min-width:200px;background:var(--input-bg);color:var(--ink)">
         </div>
     </div>
 

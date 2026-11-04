@@ -94,7 +94,7 @@ $csrf = csrf_token();
 <div class="page-head">
     <form method="get" class="inline-form">
         <input type="text" name="q" value="<?= e($filter) ?>" placeholder="جستجوی نام، کد پرسنلی یا سمت…"
-               style="padding:8px 12px;border:1px solid var(--line);border-radius:9px;font:inherit">
+               style="padding:8px 12px;border:1px solid var(--input-border, var(--line));border-radius:9px;font:inherit;background:var(--input-bg);color:var(--ink)">
         <button class="btn btn-sm">فیلتر</button>
     </form>
     <div style="display:flex;gap:8px">
