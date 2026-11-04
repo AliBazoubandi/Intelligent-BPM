@@ -11,11 +11,7 @@ function app_icon(string $name, string $class = '', int $size = 18): string
 
     return match ($name) {
         // نشان برند (Brand Logo)
-        'brand' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-            . '<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>'
-            . '<circle cx="12" cy="12" r="4.5" fill="currentColor" fill-opacity="0.18"/>'
-            . '<circle cx="12" cy="12" r="1.8" fill="currentColor"/>'
-            . '</svg>',
+        'brand' => '<img src="' . (defined('BASE_URL') ? BASE_URL : '') . '/assets/logo.png" alt="رابین‌فلو" class="' . $cls . '" style="width:' . $s . 'px;height:' . $s . 'px;object-fit:cover;border-radius:6px;display:inline-block;vertical-align:middle;">',
 
         // خانه (Home)
         'home' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'

@@ -76,15 +76,20 @@ a:hover { text-decoration: underline; }
 .brand:hover { text-decoration: none; }
 .brand-logo {
     width: 44px; height: 44px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, rgba(255,255,255,.24) 0%, rgba(255,255,255,.08) 100%);
-    border: 1px solid rgba(255,255,255,.28);
-    box-shadow: 0 4px 14px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.3);
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(255,255,255,.35);
+    box-shadow: 0 4px 14px rgba(0,0,0,.15);
     display: flex; align-items: center; justify-content: center;
-    color: #fff;
-    transition: transform .2s ease;
+    overflow: hidden;
+    padding: 2px;
+    transition: transform .2s ease, box-shadow .2s ease;
 }
-.brand:hover .brand-logo { transform: scale(1.04); }
+.brand-logo img,
+.brand-img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block;
+}
+.brand:hover .brand-logo { transform: scale(1.05); box-shadow: 0 6px 18px rgba(0,0,0,.22); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.35; }
 .brand-text b { font-size: 16.5px; font-weight: 800; letter-spacing: -0.2px; }
 .brand-text small { font-size: 11.5px; opacity: .82; font-weight: 400; margin-top: 1px; }
@@ -620,19 +625,22 @@ td .sub { font-size: 12px; color: var(--muted); }
 
 .login-brand { text-align: center; margin-bottom: 22px; }
 .login-logo {
-    width: 62px; height: 62px; margin: 0 auto 14px;
-    border-radius: 18px;
-    background: var(--header-grad);
-    color: #fff;
+    width: 72px; height: 72px; margin: 0 auto 14px;
+    border-radius: 20px;
+    background: #ffffff;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 10px 25px rgba(24, 51, 133, 0.28);
+    box-shadow: 0 10px 25px rgba(24, 51, 133, 0.16);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    padding: 4px;
+}
+.login-logo img,
+.login-logo-img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 16px; display: block;
 }
 .team-theme .login-logo {
-    box-shadow: 0 10px 25px rgba(13, 122, 96, 0.28);
+    box-shadow: 0 10px 25px rgba(13, 122, 96, 0.16);
 }
-    box-shadow: 0 8px 22px rgba(47,95,224,.35);
-}
-.team-theme .login-logo { box-shadow: 0 8px 22px rgba(14,138,109,.35); }
 .login-brand h1 { font-size: 19px; margin: 0 0 2px; }
 .login-brand p { margin: 0; color: var(--muted); font-size: 13px; }
 .login-area-tag {

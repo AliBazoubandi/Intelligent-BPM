@@ -24,6 +24,8 @@ function user_header(array $id, string $active, string $pageTitle): void
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($pageTitle) ?> | رابین‌فلو</title>
+<link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
+<link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -33,7 +35,7 @@ function user_header(array $id, string $active, string $pageTitle): void
         <div class="header-top">
             <a class="brand" href="home.php">
                 <span class="brand-logo">
-                    <?= app_icon('brand', 'brand-svg', 26) ?>
+                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="رابین‌فلو" class="brand-img">
                 </span>
                 <span class="brand-text">
                     <b>رابین‌فلو</b>
@@ -123,6 +125,8 @@ function team_header(array $id, string $active, string $pageTitle): void
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($pageTitle) ?> | پنل تیم رابین‌فلو</title>
+<link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
+<link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
@@ -132,7 +136,7 @@ function team_header(array $id, string $active, string $pageTitle): void
         <div class="header-top">
             <a class="brand" href="home.php">
                 <span class="brand-logo">
-                    <?= app_icon('brand', 'brand-svg', 26) ?>
+                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="رابین‌فلو" class="brand-img">
                 </span>
                 <span class="brand-text">
                     <b>رابین‌فلو</b>

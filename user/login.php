@@ -41,13 +41,17 @@ $csrf = csrf_token();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ورود کاربران | رابین‌فلو</title>
+<link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/favicon.png">
+<link rel="apple-touch-icon" href="<?= BASE_URL ?>/assets/logo.png">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/mikhak.css">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/style.css">
 </head>
 <body class="login-body">
 <main class="login-card">
     <div class="login-brand">
-        <div class="login-logo"><?= app_icon('brand', 'login-brand-icon', 38) ?></div>
+        <div class="login-logo">
+            <img src="<?= BASE_URL ?>/assets/logo.png" alt="رابین‌فلو" class="login-logo-img">
+        </div>
         <h1>رابین‌فلو</h1>
         <p>سامانه مدیریت و بهبود فرآیندها</p>
         <span class="login-area-tag">ورود کاربران سازمان</span>
