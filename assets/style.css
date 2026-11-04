@@ -563,18 +563,19 @@ a:hover { text-decoration: underline; }
 /* منوی ردیفی با آیکون‌های وکتور هماهنگ — همه تب‌ها در یک خط */
 .header-nav {
     display: flex;
-    gap: 4px;
+    gap: 3px;
     flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: visible;
     padding-bottom: 0;
     margin-top: 4px;
     position: relative;
-    z-index: 10;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    z-index: 100;
 }
-.header-nav::-webkit-scrollbar { display: none; }
+.header-nav .nav-item {
+    padding: 8px 9px 10px;
+    font-size: 12.5px;
+    gap: 5px;
+}
 .nav-item {
     color: rgba(255,255,255,.88);
     font-size: 13px;
@@ -1035,36 +1036,79 @@ td .sub { font-size: 12px; color: var(--muted); }
     .card { padding: 16px; }
 }
 
-/* ---------------- زیرمنوی اطلاعات پایه ---------------- */
-.nav-item.has-sub { position: relative; cursor: default; gap: 5px; }
-.nav-item.has-sub > a { color: inherit; }
-.nav-item.has-sub .caret { font-size: 10px; opacity: .8; }
+/* ---------------- زیرمنوی اطلاعات پایه (Basics Dropdown) ---------------- */
+.nav-item.has-sub {
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+}
+.nav-item.has-sub .caret {
+    font-size: 11px;
+    line-height: 1;
+    opacity: .85;
+    transition: transform .22s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-block;
+}
+.nav-item.has-sub:hover .caret,
+.nav-item.has-sub.open .caret {
+    transform: rotate(180deg);
+}
 .submenu {
     display: none;
     position: absolute;
-    top: calc(100% + 2px);
-    right: 0;
+    top: calc(100% + 4px);
+    left: 0;
+    right: auto;
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 12px;
-    box-shadow: 0 14px 34px rgba(23,35,59,.18);
-    min-width: 190px;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.22);
+    min-width: 195px;
     padding: 6px;
-    z-index: 50;
+    z-index: 1000;
+    direction: rtl;
+    text-align: right;
+    animation: dropDownIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.submenu::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    display: block;
 }
 .nav-item.has-sub:hover .submenu,
-.nav-item.has-sub:focus .submenu,
-.nav-item.has-sub.open .submenu { display: block; }
+.nav-item.has-sub:focus-within .submenu,
+.nav-item.has-sub.open .submenu {
+    display: block !important;
+}
 .sub-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 8px 12px;
     border-radius: 8px;
     color: var(--ink);
     font-size: 13px;
     font-weight: 600;
+    text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    cursor: pointer;
+    white-space: nowrap;
 }
-.sub-item:hover { background: var(--brand-soft); color: var(--brand-dark); text-decoration: none; }
-.sub-item.active { background: var(--brand); color: #fff; }
+.sub-item:hover {
+    background: var(--brand-soft);
+    color: var(--brand-dark);
+    text-decoration: none;
+    transform: translateX(-2px);
+}
+.sub-item.active {
+    background: var(--brand);
+    color: #ffffff !important;
+    font-weight: 700;
+}
 
 /* ---------------- تب‌های پرونده ---------------- */
 .file-tabs {
@@ -2180,19 +2224,23 @@ a.fm-name { color: var(--brand-dark); }
 }
 
 [data-theme="dark"] .submenu {
-    background: var(--card);
-    border-color: var(--line);
-    box-shadow: 0 14px 35px rgba(0, 0, 0, 0.35);
+    background: #151d32;
+    border-color: #263350;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
 }
 
 [data-theme="dark"] .sub-item {
-    color: var(--ink);
+    color: #f8fafc;
 }
 
-[data-theme="dark"] .sub-item:hover,
+[data-theme="dark"] .sub-item:hover {
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+}
+
 [data-theme="dark"] .sub-item.active {
-    background: var(--brand-soft);
-    color: var(--brand);
+    background: #10b981;
+    color: #ffffff !important;
 }
 
 [data-theme="dark"] .user-dropdown-menu {
@@ -2224,5 +2272,23 @@ a.fm-name { color: var(--brand-dark); }
     }
     .user-name-compact {
         max-width: 80px;
+    }
+    .header-nav {
+        overflow-x: auto;
+        overflow-y: visible;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .header-nav::-webkit-scrollbar { display: none; }
+    .submenu {
+        position: fixed;
+        top: auto;
+        bottom: 24px;
+        left: 16px;
+        right: 16px;
+        min-width: 0;
+        max-width: 320px;
+        margin: 0 auto;
+        z-index: 9999;
     }
 }

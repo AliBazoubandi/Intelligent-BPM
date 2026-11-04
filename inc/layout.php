@@ -339,15 +339,13 @@ function team_header(array $id, string $active, string $pageTitle): void
                 <span class="tab-label">اعلان‌های هرمس</span>
                 <?php if ($notifCount > 0): ?><span class="nav-badge"><?= farsi_num($notifCount) ?></span><?php endif; ?>
             </a>
-            <div class="nav-item has-sub <?= $basicsActive ? 'active' : '' ?>" tabindex="0" id="basicsMenu">
-                <a href="#" onclick="return false;" style="display:inline-flex;align-items:center;gap:7px">
-                    <?= app_icon('basics', 'tab-icon', 17) ?>
-                    <span class="tab-label">اطلاعات پایه</span>
-                    <span class="caret">▾</span>
-                </a>
-                <div class="submenu">
+            <div class="nav-item has-sub <?= $basicsActive ? 'active' : '' ?>" id="basicsMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">
+                <?= app_icon('basics', 'tab-icon', 17) ?>
+                <span class="tab-label">اطلاعات پایه</span>
+                <span class="caret">▾</span>
+                <div class="submenu" id="basicsSubmenu" role="menu">
                     <?php foreach ($basicsChildren as $key => [$href, $label]): ?>
-                        <a class="sub-item <?= $active === $key ? 'active' : '' ?>" href="<?= $href ?>"><?= e($label) ?></a>
+                        <a class="sub-item <?= $active === $key ? 'active' : '' ?>" href="<?= $href ?>" role="menuitem"><?= e($label) ?></a>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -358,16 +356,33 @@ function team_header(array $id, string $active, string $pageTitle): void
 (function () {
     const menu = document.getElementById('basicsMenu');
     if (!menu) return;
+
+    function toggleMenu(forceState) {
+        const willOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
+        menu.classList.toggle('open', willOpen);
+        menu.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    }
+
     menu.addEventListener('click', function (ev) {
-        if (ev.target.closest('.submenu')) return;
+        if (ev.target.closest('.submenu a, .sub-item')) return;
         ev.preventDefault();
-        menu.classList.toggle('open');
+        toggleMenu();
     });
+
+    menu.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+            if (ev.target.closest('.submenu a, .sub-item')) return;
+            ev.preventDefault();
+            toggleMenu();
+        } else if (ev.key === 'Escape') {
+            toggleMenu(false);
+        }
+    });
+
     document.addEventListener('click', function (ev) {
-        if (!menu.contains(ev.target)) menu.classList.remove('open');
-    });
-    document.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') menu.classList.remove('open');
+        if (!menu.contains(ev.target)) {
+            toggleMenu(false);
+        }
     });
 })();
 </script>
