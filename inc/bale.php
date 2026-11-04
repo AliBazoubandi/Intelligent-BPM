@@ -144,7 +144,7 @@ function bale_log_message(?int $procId, ?int $persId, ?string $name, ?string $po
  * @param int $processId
  * @return array اطلاعات فرآیند، متولی چارت، و لیست اشخاص اثرپذیر
  */
-function bale_get_process_recipients(mysqli $db, int $processId): array
+function bale_get_process_recipients(mysqli $db, int $processId, ?int $requesterPersonnelId = null): array
 {
     // دریافت اطلاعات فرآیند و متولی
     $st = $db->prepare(
@@ -335,6 +335,32 @@ function bale_get_process_recipients(mysqli $db, int $processId): array
         ];
     }
 
+    // در صورتی که شناسه پیشنهاددهنده بهبود مشخص باشد و قبلاً در لیست قرار نگرفته باشد
+    if ($requesterPersonnelId > 0 && !isset($seenPersonnel[$requesterPersonnelId])) {
+        $stReq = $db->prepare(
+            "SELECT p.ID, p.PersonnelCode, p.Name, p.Family, p.BaleChatID, p.Phone, op.Title AS PosTitle 
+             FROM Personnel p 
+             LEFT JOIN OrgPositions op ON op.ID = p.OrgPositionID 
+             WHERE p.ID = ? AND p.Active = 1"
+        );
+        $stReq->bind_param('i', $requesterPersonnelId);
+        $stReq->execute();
+        $reqRow = $stReq->get_result()->fetch_assoc();
+        $stReq->close();
+        if ($reqRow) {
+            $seenPersonnel[$requesterPersonnelId] = true;
+            $merged[] = [
+                'personnel_id' => $requesterPersonnelId,
+                'name'         => trim($reqRow['Name'] . ' ' . $reqRow['Family']),
+                'position'     => $reqRow['PosTitle'] ?: 'پرسنل سازمان',
+                'bale_chat_id' => $reqRow['BaleChatID'] ?: $reqRow['Phone'] ?: '',
+                'phone'        => $reqRow['Phone'] ?? '',
+                'role'         => 'requester',
+                'role_label'   => 'پیشنهاددهنده بهبود (کاربر درخواست‌کننده)',
+            ];
+        }
+    }
+
     return [
         'found'               => true,
         'process'             => $proc,
@@ -346,7 +372,7 @@ function bale_get_process_recipients(mysqli $db, int $processId): array
 }
 
 /**
- * ارسال پیام تغییر فرآیند به متولی و تمام مخاطبان اثرپذیر در پیام‌رسان بله
+ * ارسال پیام تغییر فرآیند به متولی، مخاطبان اثرپذیر و پیشنهاددهنده بهبود در پیام‌رسان بله
  *
  * @param mysqli $db
  * @param int $processId شناسه فرآیند
@@ -354,6 +380,7 @@ function bale_get_process_recipients(mysqli $db, int $processId): array
  * @param string $changeDescription شرح تفصیلی تغییرات اعمال‌شده
  * @param string|null $processLink لینک صفحه فرآیند جهت دسترسی سریع
  * @param int|null $fromTeamId شناسه تیم ارسال‌کننده
+ * @param int|null $requesterPersonnelId شناسه پرسنل پیشنهاددهنده (در صورت وجود)
  * @return array آمار و وضعیت ارسال
  */
 function bale_notify_process_change(
@@ -362,9 +389,10 @@ function bale_notify_process_change(
     string $changeTitle,
     string $changeDescription,
     ?string $processLink = null,
-    ?int $fromTeamId = null
+    ?int $fromTeamId = null,
+    ?int $requesterPersonnelId = null
 ): array {
-    $info = bale_get_process_recipients($db, $processId);
+    $info = bale_get_process_recipients($db, $processId, $requesterPersonnelId);
     if (empty($info['found'])) {
         return ['success' => false, 'error' => 'فرآیند یافت نشد.'];
     }
@@ -436,11 +464,13 @@ function bale_notify_process_change(
             continue;
         }
 
-        // پیام اختصاصی برای متولی یا مخاطب
-        $isOwner = ($rec['role'] ?? '') === 'owner';
-        $personalHeader = $isOwner
-            ? "⚠️ همکار گرامی جناب/سرکار {$rec['name']}، شما به عنوان «{$rec['position']}» متولی این فرآیند می‌باشید. لطفاً تغییرات جدید را بررسی نمایید.\n\n"
-            : "همکار گرامی جناب/سرکار {$rec['name']} ({$rec['position']})، با توجه به اثرپذیری از این فرآیند، تغییرات جهت آگاهی شما ارسال می‌گردد:\n\n";
+        // پیام اختصاصی برای متولی، پیشنهاددهنده، یا مخاطبان اثرپذیر
+        $role = $rec['role'] ?? 'audience';
+        $personalHeader = match ($role) {
+            'owner'     => "⚠️ همکار گرامی جناب/سرکار {$rec['name']}، شما به عنوان «{$rec['position']}» متولی این فرآیند می‌باشید. لطفاً تغییرات جدید را بررسی نمایید.\n\n",
+            'requester' => "🎉 همکار گرامی جناب/سرکار {$rec['name']}، پیشنهاد بهبود شما برای این فرآیند با موفقیت توسط تیم مهندسی فرآیند بررسی و در نسخه جدید اعمال گردید:\n\n",
+            default     => "همکار گرامی جناب/سرکار {$rec['name']} ({$rec['position']})، با توجه به اثرپذیری از این فرآیند، تغییرات جهت آگاهی شما ارسال می‌گردد:\n\n",
+        };
 
         $finalMsg = $personalHeader . $template;
 

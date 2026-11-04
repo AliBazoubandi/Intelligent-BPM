@@ -96,7 +96,7 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
         $st->close();
 
         // دریافت اطلاعات فرآیند برای ارسال اعلان (Notification)
-        $st = $db->prepare("SELECT p.ID AS Pid, p.Name AS ProcName, i.Title AS ImpTitle 
+        $st = $db->prepare("SELECT p.ID AS Pid, p.Name AS ProcName, i.Title AS ImpTitle, i.requester_type, i.requester_id 
                             FROM Improvements i JOIN Processes p ON p.ID = i.ProcessID WHERE i.ID = ?");
         $st->bind_param('i', $impId);
         $st->execute();
@@ -108,6 +108,7 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
         $procId = (int)($info['Pid'] ?? 0);
         $newVer = $applyRes['new_version'];
         $pdfUrl = $applyRes['pdf_url'];
+        $reqPersId = (($info['requester_type'] ?? '') === 'user') ? (int)($info['requester_id'] ?? 0) : null;
 
         // ثبت اعلان با اولویت بالا برای تیم مسئول
         $notifTitle = "سند مصوب فرآیند «{$procName}» (نسخه {$newVer}) توسط هرمس تدوین و منتشر شد";
@@ -119,11 +120,11 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
         $st->execute();
         $st->close();
 
-        // ارسال پیام خودکار به متولی در چارت سازمانی و مخاطبان اثرپذیر در پیام‌رسان بله
-        echo "   * Dispatching notifications to Org Chart owner & affected audience via Bale...\n";
+        // ارسال پیام خودکار به متولی در چارت سازمانی، مخاطبان اثرپذیر و کاربر پیشنهاددهنده در پیام‌رسان بله
+        echo "   * Dispatching notifications to Org Chart owner, affected audience & requester via Bale...\n";
         $baleTitle = "تدوین و انتشار سند مصوب فرآیند «{$procName}» (نسخه {$newVer})";
         $baleDesc = "عملیات بهینه‌سازی و تدوین سند رسمی PDF بر اساس پیشنهاد بهبود «{$impTitle}» توسط هوش مصنوعی هرمس با موفقیت پایان یافت و در پرونده ذخیره شد.";
-        $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, $pdfUrl, $teamId);
+        $baleRes = bale_notify_process_change($db, $procId, $baleTitle, $baleDesc, $pdfUrl, $teamId, $reqPersId);
         $sentCount = $baleRes['sent'] ?? 0;
         $failedCount = $baleRes['failed'] ?? 0;
         echo "   -> Bale dispatched: {$sentCount} sent, {$failedCount} failed.\n";
