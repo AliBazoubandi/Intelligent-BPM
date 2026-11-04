@@ -26,18 +26,70 @@ function farsi_num(string|int|float|null $input): string
     return str_replace($en, $fa, (string)$input);
 }
 
-function fmt_date(?string $dt): string
+/** تبدیل تاریخ میلادی به هجری شمسی (جلالی) */
+function gregorian_to_jalali(int $gy, int $gm, int $gd): array
 {
-    if (!$dt) return '—';
-    $ts = strtotime($dt);
-    return $ts ? farsi_num(date('Y/m/d H:i', $ts)) : farsi_num($dt);
+    $g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    $gy2 = ($gm > 2) ? ($gy + 1) : $gy;
+    $days = 355666 + (365 * $gy) + (int)(($gy2 + 3) / 4) - (int)(($gy2 + 99) / 100) + (int)(($gy2 + 399) / 400) + $gd + $g_d_m[$gm - 1];
+    $jy = -1595 + (33 * (int)($days / 12053));
+    $days %= 12053;
+    $jy += 4 * (int)($days / 1461);
+    $days %= 1461;
+    if ($days > 365) {
+        $jy += (int)(($days - 1) / 365);
+        $days = ($days - 1) % 365;
+    }
+    if ($days < 186) {
+        $jm = 1 + (int)($days / 31);
+        $jd = 1 + ($days % 31);
+    } else {
+        $jm = 7 + (int)(($days - 186) / 30);
+        $jd = 1 + (($days - 186) % 30);
+    }
+    return [$jy, $jm, $jd];
 }
 
-function fmt_date_short(?string $dt): string
+/**
+ * فرمت تاریخ و زمان شمسی (تاریخ اول، سپس زمان بعد از آن)
+ * مثال: ۱۴۰۵/۰۸/۱۲ - ۱۴:۱۵
+ */
+function fmt_date(string|int|null $dt): string
 {
-    if (!$dt) return '—';
-    $ts = strtotime($dt);
-    return $ts ? farsi_num(date('Y/m/d', $ts)) : farsi_num($dt);
+    if ($dt === null || $dt === '' || $dt === '—') return '—';
+    $ts = is_numeric($dt) ? (int)$dt : strtotime((string)$dt);
+    if (!$ts) return farsi_num((string)$dt);
+
+    $gy = (int)date('Y', $ts);
+    $gm = (int)date('n', $ts);
+    $gd = (int)date('j', $ts);
+    [$jy, $jm, $jd] = gregorian_to_jalali($gy, $gm, $gd);
+
+    $jDate = sprintf('%04d/%02d/%02d', $jy, $jm, $jd);
+    $time = date('H:i', $ts);
+
+    // Left-to-Right Mark (\u{200E}) ensures that even in RTL tables/paragraphs,
+    // the date is placed first on the left, followed by the hyphen, then the time on the right.
+    return "\u{200E}" . farsi_num($jDate) . ' - ' . farsi_num($time) . "\u{200E}";
+}
+
+/**
+ * فرمت تاریخ شمسی کوتاه بدون زمان
+ * مثال: ۱۴۰۵/۰۸/۱۲
+ */
+function fmt_date_short(string|int|null $dt): string
+{
+    if ($dt === null || $dt === '' || $dt === '—') return '—';
+    $ts = is_numeric($dt) ? (int)$dt : strtotime((string)$dt);
+    if (!$ts) return farsi_num((string)$dt);
+
+    $gy = (int)date('Y', $ts);
+    $gm = (int)date('n', $ts);
+    $gd = (int)date('j', $ts);
+    [$jy, $jm, $jd] = gregorian_to_jalali($gy, $gm, $gd);
+
+    $jDate = sprintf('%04d/%02d/%02d', $jy, $jm, $jd);
+    return farsi_num($jDate);
 }
 
 function fmt_size(int $bytes): string

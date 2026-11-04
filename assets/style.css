@@ -1119,10 +1119,206 @@ td .sub { font-size: 12px; color: var(--muted); }
 .msg .m-body { font-size: 13.5px; margin: 0; white-space: pre-line; }
 
 /* ---------- مدیریت فایل‌ها (پنل تیم) ---------- */
+.fm-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+}
+.fm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    flex-wrap: wrap;
+}
+.fm-crumbs a {
+    color: var(--brand);
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background .15s ease;
+}
+.fm-crumbs a:hover {
+    background: var(--brand-soft);
+    text-decoration: none;
+}
+.fm-crumbs .sep {
+    color: var(--muted);
+    font-size: 11px;
+}
+.fm-crumbs .current {
+    font-weight: 800;
+    color: var(--ink);
+    padding: 4px 8px;
+}
+.fm-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.fm-filter-input {
+    padding: 7px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12.5px;
+    background: var(--bg);
+    color: var(--ink);
+    width: 170px;
+    transition: border-color .15s ease, width .2s ease;
+}
+.fm-filter-input:focus {
+    width: 210px;
+    border-color: var(--brand);
+    outline: none;
+}
+
+.fm-summary-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12.5px;
+    color: var(--muted);
+    padding: 8px 16px;
+    background: var(--card);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.fm-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.fm-layout {
+    display: grid;
+    grid-template-columns: 290px 1fr;
+    gap: 18px;
+    align-items: start;
+}
+@media (max-width: 960px) {
+    .fm-layout {
+        grid-template-columns: 1fr;
+    }
+}
+.fm-sidebar {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+}
+.fm-sidebar-title {
+    font-size: 13.5px;
+    font-weight: 800;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+}
+.fm-tree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 13px;
+    max-height: 520px;
+    overflow-y: auto;
+}
+.fm-tree ul {
+    list-style: none;
+    margin: 3px 0 0;
+    padding-inline-start: 16px;
+    display: grid;
+    gap: 2px;
+}
+.fm-tree li {
+    margin: 0;
+}
+.fm-tree a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 12.5px;
+    transition: background .15s ease, color .15s ease;
+    width: 100%;
+}
+.fm-tree a:hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+    text-decoration: none;
+}
+.fm-tree li.here > a {
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-weight: 800;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.fm-tree .cnt-badge {
+    font-size: 11px;
+    margin-inline-start: auto;
+    opacity: .75;
+    background: rgba(0,0,0,0.06);
+    padding: 1px 6px;
+    border-radius: 999px;
+}
+[data-theme="dark"] .fm-tree .cnt-badge {
+    background: rgba(255,255,255,0.08);
+}
+
+.fm-main-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+    min-width: 0;
+}
+.fm-main-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.fm-main-head h2 {
+    margin: 0;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .fm-table td { vertical-align: middle; }
 .fm-name { font-weight: 700; color: var(--ink); }
 a.fm-name { color: var(--brand-dark); }
-.fm-up td { background: #fbfcfe; font-size: 12.5px; }
+.fm-up td { background: var(--bg); font-size: 12.5px; }
 .db-tag {
     display: inline-block;
     font-size: 11px;
@@ -1137,37 +1333,114 @@ a.fm-name { color: var(--brand-dark); }
 .db-tag-proc { background: var(--info-soft); color: var(--info); }
 .db-tag-free { background: #eef1f6; color: var(--muted); }
 .db-tag-lock { background: var(--warn-soft); color: var(--warn); }
-.fm-actions { display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
-.fm-actions-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fm-actions input[type=text],
-.fm-actions select {
-    font: inherit;
-    font-size: 12.5px;
-    padding: 5px 9px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #fff;
-    color: var(--ink);
-    max-width: 190px;
-    direction: ltr;
-    text-align: left;
-    unicode-bidi: plaintext;
-}
-.fm-actions input[type=text]:focus,
-.fm-actions select:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
-.fm-force { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
-.fm-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.fm-tree ul { list-style: none; margin: 4px 0 0; padding-inline-start: 22px; display: grid; gap: 3px; }
-.fm-tree li { margin: 0; }
-.fm-tree > li { padding: 6px 0; border-bottom: 1px dashed var(--line); }
-.fm-tree > li:last-child { border-bottom: 0; }
-.fm-tree a { color: var(--brand-dark); font-weight: 700; }
-.fm-tree li.here > a { color: var(--ink); background: var(--brand-soft); border-radius: 8px; padding: 1px 8px; }
+[data-theme="dark"] .db-tag-free { background: rgba(255,255,255,0.06); color: #94a3b8; }
 
-@media (max-width: 640px) {
-    .submenu { right: auto; left: 0; }
-    .msg { max-width: 100%; }
-    .fm-actions input[type=text] { max-width: 130px; }
+/* ردیف اکشن‌های هر سطر فایل */
+.fm-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    justify-content: flex-end;
+}
+.fm-act-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: none;
+    transition: all .15s ease;
+    font-size: 13.5px;
+    padding: 0;
+}
+.fm-act-btn:hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-color: var(--brand);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+.fm-act-btn.danger:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+/* پنجره‌های پاپ‌آپ (Modals) */
+.fm-modal-backdrop {
+    display: none;
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.fm-modal-backdrop.open {
+    display: flex;
+}
+.fm-modal-box {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    width: 100%;
+    max-width: 480px;
+    padding: 22px 24px;
+    position: relative;
+    animation: modal-pop .2s cubic-bezier(0.16, 1, 0.3, 1);
+    direction: rtl;
+}
+@keyframes modal-pop {
+    from { transform: scale(0.94); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+.fm-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+}
+.fm-modal-title {
+    font-size: 15.5px;
+    font-weight: 800;
+    margin: 0;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.fm-modal-close {
+    background: transparent;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1;
+}
+.fm-modal-close:hover {
+    color: var(--ink);
+    background: var(--line);
+}
+.fm-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
 }
 
 /* ---------------- هوش مصنوعی هرمس (Hermes Advisor) ---------------- */

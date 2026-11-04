@@ -225,7 +225,7 @@ $csrf = csrf_token();
     if (is_dir($absDir)) {
         foreach (scandir($absDir) as $f) {
             if ($f === '.' || $f === '..' || $f === '.htaccess') continue;
-            if (is_file($absDir . $f)) $files[] = ['name' => $f, 'size' => (int)filesize($absDir . $f), 'time' => date('Y/m/d H:i', (int)filemtime($absDir . $f))];
+            if (is_file($absDir . $f)) $files[] = ['name' => $f, 'size' => (int)filesize($absDir . $f), 'time' => fmt_date((int)filemtime($absDir . $f))];
         }
     }
     if (!$files): ?>

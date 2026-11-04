@@ -44,7 +44,7 @@ if ($procId > 0) {
         foreach (scandir($absDir) as $f) {
             if ($f === '.' || $f === '..' || $f === '.htaccess' || str_starts_with($f, '.')) continue;
             $fp = $absDir . DIRECTORY_SEPARATOR . $f;
-            if (is_file($fp)) $files[] = ['name' => $f, 'size' => (int)filesize($fp), 'time' => date('Y-m-d H:i', (int)filemtime($fp))];
+            if (is_file($fp)) $files[] = ['name' => $f, 'size' => (int)filesize($fp), 'time' => fmt_date((int)filemtime($fp))];
         }
     }
     ?>
