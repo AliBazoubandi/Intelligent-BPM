@@ -56,11 +56,6 @@ function user_header(array $id, string $active, string $pageTitle): void
                     </form>
                 </div>
 
-                <div class="header-worker-pill" title="پردازشگر هوش مصنوعی هرمس برخط است">
-                    <span class="worker-pulse-dot"></span>
-                    <span class="worker-text">worker · برخط</span>
-                </div>
-
                 <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
                     <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
                     <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
@@ -72,10 +67,6 @@ function user_header(array $id, string $active, string $pageTitle): void
                         <span class="user-name-compact"><?= e($id['name']) ?></span>
                         <span class="user-chevron"><?= app_icon('chevron_down', '', 12) ?></span>
                     </button>
-                    <a class="btn-exit-compact" href="logout.php" title="خروج از سامانه">
-                        <?= app_icon('logout', '', 13) ?>
-                        <span class="exit-label">خروج</span>
-                    </a>
                     <div class="user-dropdown-menu" id="userDropdownMenu">
                         <div class="user-dd-profile">
                             <span class="avatar avatar-dd"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
@@ -179,25 +170,30 @@ function app_footer(): void
     // 3. User compact menu dropdown toggle
     const userChip = document.getElementById('userChipCompact');
     const userBtn = document.getElementById('userMenuBtn');
-    if (userChip && userBtn) {
-        userBtn.addEventListener('click', function(e) {
+    if (userChip) {
+        userChip.addEventListener('click', function(e) {
+            if (e.target.closest('#userDropdownMenu')) {
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
             userChip.classList.toggle('open');
-            userBtn.setAttribute('aria-expanded', userChip.classList.contains('open') ? 'true' : 'false');
+            if (userBtn) {
+                userBtn.setAttribute('aria-expanded', userChip.classList.contains('open') ? 'true' : 'false');
+            }
         });
 
         document.addEventListener('click', function(e) {
             if (!userChip.contains(e.target)) {
                 userChip.classList.remove('open');
-                userBtn.setAttribute('aria-expanded', 'false');
+                if (userBtn) userBtn.setAttribute('aria-expanded', 'false');
             }
         });
 
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 userChip.classList.remove('open');
-                userBtn.setAttribute('aria-expanded', 'false');
+                if (userBtn) userBtn.setAttribute('aria-expanded', 'false');
             }
         });
     }
@@ -267,11 +263,6 @@ function team_header(array $id, string $active, string $pageTitle): void
                     </form>
                 </div>
 
-                <div class="header-worker-pill" title="پردازشگر هوش مصنوعی هرمس برخط است">
-                    <span class="worker-pulse-dot"></span>
-                    <span class="worker-text">worker · برخط</span>
-                </div>
-
                 <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
                     <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
                     <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
@@ -288,10 +279,6 @@ function team_header(array $id, string $active, string $pageTitle): void
                         <span class="user-name-compact"><?= e($id['name']) ?></span>
                         <span class="user-chevron"><?= app_icon('chevron_down', '', 12) ?></span>
                     </button>
-                    <a class="btn-exit-compact" href="logout.php" title="خروج از سامانه">
-                        <?= app_icon('logout', '', 13) ?>
-                        <span class="exit-label">خروج</span>
-                    </a>
                     <div class="user-dropdown-menu" id="userDropdownMenu">
                         <div class="user-dd-profile">
                             <span class="avatar avatar-dd avatar-team"><?= e(mb_substr($id['name'], 0, 1)) ?></span>
