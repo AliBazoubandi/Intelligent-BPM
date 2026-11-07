@@ -10,13 +10,35 @@ require_once __DIR__ . '/icons.php';
  */
 function user_header(array $id, string $active, string $pageTitle): void
 {
-    $badges = user_badges((int)$id['id']);
+    $uid = (int)($id['id'] ?? 0);
+    $badges = user_badges($uid);
+    $hermesNotifCount = 0;
+    $msgNotifCount = 0;
+    try {
+        $db = app_db();
+        $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
+        $cntH->bind_param('i', $uid);
+        $cntH->execute();
+        $hermesNotifCount = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
+        $cntH->close();
+
+        $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'message'");
+        $cntM->bind_param('i', $uid);
+        $cntM->execute();
+        $msgNotifCount = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
+        $cntM->close();
+    } catch (Throwable) {}
+
+    $totalNotifCount = $hermesNotifCount + $msgNotifCount;
+
     $menu = [
         'home' => ['home.php', 'خانه', 'home', null],
         'processes' => ['processes.php', 'پیمایش فرآیندها', 'processes', null],
         'ask' => ['ask.php', 'پرسش از فرآیندها', 'bot', null],
         'improvements' => ['improvements.php', 'بهبودهای من', 'improvements', $badges['improvements']],
+        'discussion' => ['discussion.php', 'گفتگو در فرآیندها', 'discussion', null],
         'changes' => ['changes.php', 'تغییرات مرتبط با من', 'changes', $badges['changes']],
+        'notifications' => ['notifications.php', 'اعلان‌ها', 'bell', $totalNotifCount ?: null],
     ];
     ?><!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -48,6 +70,18 @@ function user_header(array $id, string $active, string $pageTitle): void
             </a>
 
             <div class="header-actions">
+                <!-- آیکون و شمارنده اختصاصی پیام‌های گفتگو -->
+                <a href="notifications.php?tab=messages" class="notif-bell-btn notif-msg-btn" title="پیام‌های گفتگو">
+                    <?= app_icon('discussion', '', 16) ?>
+                    <span id="msgNotifBadge" class="notif-badge msg-notif-badge" style="display:<?= $msgNotifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($msgNotifCount) ?></span>
+                </a>
+
+                <!-- آیکون و شمارنده اختصاصی اعلان‌های هوشمند داور هرمس -->
+                <a href="notifications.php?tab=hermes" class="notif-bell-btn notif-hermes-btn" title="اعلان‌های هوشمند هرمس">
+                    <?= app_icon('bot', '', 17) ?>
+                    <span id="notifBadge" class="notif-badge hermes-notif-badge" style="display:<?= $hermesNotifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($hermesNotifCount) ?></span>
+                </a>
+
                 <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
                     <span class="theme-icon theme-icon-moon"><?= app_icon('moon', '', 16) ?></span>
                     <span class="theme-icon theme-icon-sun"><?= app_icon('sun', '', 16) ?></span>
@@ -76,6 +110,15 @@ function user_header(array $id, string $active, string $pageTitle): void
                             </div>
                         </div>
                         <div class="user-dd-divider"></div>
+                        <a href="notifications.php" class="user-dd-link">
+                            <?= app_icon('bell', '', 14) ?>
+                            <span>مرکز اعلان‌ها و پیام‌ها</span>
+                            <?php if ($totalNotifCount > 0): ?><span class="nav-badge" style="margin-right:auto"><?= farsi_num($totalNotifCount) ?></span><?php endif; ?>
+                        </a>
+                        <a href="discussion.php" class="user-dd-link">
+                            <?= app_icon('discussion', '', 14) ?>
+                            <span>گفتگو در فرآیندها</span>
+                        </a>
                         <a href="my_changes.php" class="user-dd-link">
                             <?= app_icon('changes', '', 14) ?>
                             <span>تغییرات مرتبط با من</span>
@@ -104,6 +147,222 @@ function user_header(array $id, string $active, string $pageTitle): void
         </nav>
     </div>
 </header>
+<div id="hermesToastContainer" style="position:fixed;bottom:24px;left:24px;z-index:9999;display:flex;flex-direction:column;gap:12px;max-width:380px;pointer-events:none"></div>
+<div id="fastMsgToastContainer" style="position:fixed;bottom:24px;right:24px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:340px;pointer-events:none"></div>
+<script>
+(function() {
+    let notifiedIds = new Set();
+    function getDismissedSet() {
+        try {
+            const raw = localStorage.getItem('robinflow_user_dismissed_notifs');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) return new Set(arr.map(Number));
+            }
+        } catch (e) {}
+        return new Set();
+    }
+    let dismissedSet = getDismissedSet();
+
+    function getSeenToastSet() {
+        try {
+            const raw = localStorage.getItem('robinflow_user_seen_toasts');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) return new Set(arr.map(Number));
+            }
+        } catch (e) {}
+        return new Set();
+    }
+    let seenToastSet = getSeenToastSet();
+
+    function markToastSeen(nid) {
+        seenToastSet.add(nid);
+        notifiedIds.add(nid);
+        try {
+            const arr = Array.from(seenToastSet).slice(-300);
+            localStorage.setItem('robinflow_user_seen_toasts', JSON.stringify(arr));
+        } catch (e) {}
+    }
+
+    window.dismissHermesNotif = function(notifId, toastEl) {
+        const nid = parseInt(notifId);
+        if (!nid) return;
+        dismissedSet.add(nid);
+        markToastSeen(nid);
+        try {
+            const arr = Array.from(dismissedSet).slice(-200);
+            localStorage.setItem('robinflow_user_dismissed_notifs', JSON.stringify(arr));
+        } catch (e) {}
+        if (toastEl) {
+            toastEl.style.opacity = '0';
+            toastEl.style.transform = 'translateY(12px) scale(0.96)';
+            setTimeout(() => { if (toastEl.parentElement) toastEl.remove(); }, 250);
+        }
+        fetch('<?= BASE_URL ?>/user/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+            .then(r => r.json())
+            .then(data => {
+                if (data && typeof data.hermes_unread_count !== 'undefined') {
+                    const badge = document.getElementById('notifBadge');
+                    if (badge) {
+                        badge.style.display = data.hermes_unread_count > 0 ? 'flex' : 'none';
+                        badge.textContent = data.hermes_unread_count;
+                    }
+                }
+            }).catch(() => {});
+    };
+
+    function showFastMessageToast(n) {
+        const container = document.getElementById('fastMsgToastContainer');
+        if (!container) return;
+        const nid = parseInt(n.ID);
+        markToastSeen(nid);
+        const toast = document.createElement('div');
+        toast.className = 'fast-msg-toast';
+
+        let cleanBody = (n.Body || '').replace(/<[^>]*>/g, '').trim();
+        if (cleanBody.length > 70) cleanBody = cleanBody.substring(0, 70) + '…';
+
+        toast.innerHTML = `
+            <div class="fast-msg-avatar">💬</div>
+            <div class="fast-msg-body">
+                <div class="fast-msg-title">${n.Title || 'پیام جدید در گفتگو'}</div>
+                ${cleanBody ? `<div class="fast-msg-sub">${cleanBody}</div>` : ''}
+            </div>
+            <button type="button" class="fast-msg-close" title="بستن">×</button>
+        `;
+
+        function dismiss(markRead) {
+            markToastSeen(nid);
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px) scale(0.95)';
+            setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
+            if (markRead) {
+                dismissedSet.add(nid);
+                fetch('<?= BASE_URL ?>/user/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+                    .then(r => r.json())
+                    .then(res => {
+                        const mBadge = document.getElementById('msgNotifBadge');
+                        if (mBadge && typeof res.msg_unread_count !== 'undefined') {
+                            mBadge.style.display = res.msg_unread_count > 0 ? 'flex' : 'none';
+                            mBadge.textContent = res.msg_unread_count;
+                        }
+                    }).catch(() => {});
+            }
+        }
+
+        toast.addEventListener('click', function(e) {
+            if (e.target.closest('.fast-msg-close')) {
+                e.stopPropagation();
+                dismiss(true);
+                return;
+            }
+            dismiss(true);
+            if (n.Link) {
+                window.location.href = n.Link;
+            }
+        });
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast.parentElement) {
+                dismiss(false);
+            }
+        }, 3500);
+    }
+
+    function pollUserAlerts() {
+        fetch('<?= BASE_URL ?>/user/notifications.php?check_unread=1')
+            .then(r => r.json())
+            .then(data => {
+                // به‌روزرسانی شمارنده اعلان‌های هرمس
+                const hBadge = document.getElementById('notifBadge');
+                if (hBadge && typeof data.hermes_unread_count !== 'undefined') {
+                    hBadge.style.display = data.hermes_unread_count > 0 ? 'flex' : 'none';
+                    hBadge.textContent = data.hermes_unread_count;
+                }
+
+                // به‌روزرسانی شمارنده پیام‌های گفتگو
+                const mBadge = document.getElementById('msgNotifBadge');
+                if (mBadge && typeof data.msg_unread_count !== 'undefined') {
+                    mBadge.style.display = data.msg_unread_count > 0 ? 'flex' : 'none';
+                    mBadge.textContent = data.msg_unread_count;
+                }
+
+                const isNotifPage = window.location.pathname.indexOf('notifications.php') !== -1;
+
+                // نمایش توست تفصیلی برای اسناد و اعلان‌های هرمس (فقط یک بار برای همیشه)
+                if (data.hermes_notifications && data.hermes_notifications.length > 0) {
+                    data.hermes_notifications.forEach(n => {
+                        const nid = parseInt(n.ID);
+                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid) && !seenToastSet.has(nid)) {
+                            markToastSeen(nid);
+                            if (!isNotifPage) {
+                                showUserToast(n);
+                            }
+                        }
+                    });
+                }
+
+                // نمایش توست سریع برای پیام‌های گفتگو (فقط یک بار برای همیشه)
+                if (data.message_notifications && data.message_notifications.length > 0) {
+                    data.message_notifications.forEach(n => {
+                        const nid = parseInt(n.ID);
+                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid) && !seenToastSet.has(nid)) {
+                            markToastSeen(nid);
+                            if (!isNotifPage) {
+                                showFastMessageToast(n);
+                            }
+                        }
+                    });
+                }
+            }).catch(() => {});
+    }
+
+    function showUserToast(n) {
+        const container = document.getElementById('hermesToastContainer');
+        if (!container) return;
+        const nid = parseInt(n.ID);
+        const toast = document.createElement('div');
+        toast.className = 'hermes-toast-item';
+        toast.style.cssText = 'pointer-events:auto;background:#0f172a;color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 12px 28px -5px rgba(0,0,0,0.35);border:1px solid #334155;display:flex;flex-direction:column;gap:6px;font-family:inherit;font-size:13px;transition:opacity 0.25s ease, transform 0.25s ease;animation:slideIn 0.3s ease-out;';
+
+        let linkHtml = '';
+        if (n.Link) {
+            let btnText = 'مشاهده پیوند مرتبط ←';
+            if (n.Link.indexOf('.pdf') !== -1) {
+                btnText = 'مشاهده و دانلود سند PDF ←';
+            } else if (n.Link.indexOf('discussion.php') !== -1) {
+                btnText = 'ورود به گفتگو ←';
+            } else if (n.Link.indexOf('processes.php') !== -1) {
+                btnText = 'مشاهده فرآیند ←';
+            }
+            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${btnText}</a>`;
+        }
+
+        toast.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px">🤖 ${n.Title}</span>
+                <button type="button" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" title="بستن">×</button>
+            </div>
+            ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${n.Body}</div>` : ''}
+            ${linkHtml}
+        `;
+        container.appendChild(toast);
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(12px) scale(0.96)';
+                setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
+            }
+        }, 16000);
+    }
+
+    setInterval(pollUserAlerts, 8000);
+    setTimeout(pollUserAlerts, 1500);
+})();
+</script>
 <main class="app-main">
     <div class="page-head">
         <h1><?= e($pageTitle) ?></h1>
@@ -204,6 +463,112 @@ function app_footer(): void
 <?php
 }
 
+/**
+ * ارسال اعلان‌های دوطرفه درون‌برنامه‌ای و پیام‌رسان بله برای گفتگوهای فرآیند
+ */
+function discussion_dispatch_notifications(
+    mysqli $db,
+    int $impId,
+    string $senderType,
+    int $senderId,
+    string $messageBody,
+    string $senderName
+): void {
+    $st = $db->prepare(
+        "SELECT i.ID, i.Title AS ImpTitle, i.ProcessID, i.requester_type, i.requester_id,
+                p.Name AS ProcName, p.ResponsibleTeamID, pt.TeamName
+         FROM Improvements i
+         JOIN Processes p ON p.ID = i.ProcessID
+         LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
+         WHERE i.ID = ?"
+    );
+    $st->bind_param('i', $impId);
+    $st->execute();
+    $info = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$info) return;
+
+    $procId = (int)$info['ProcessID'];
+    $procName = (string)$info['ProcName'];
+    $impTitle = (string)$info['ImpTitle'];
+    $respTeamId = (int)($info['ResponsibleTeamID'] ?? 0);
+    $reqType = (string)$info['requester_type'];
+    $reqId = (int)$info['requester_id'];
+    $cleanText = trim(preg_replace('/\s+/', ' ', strip_tags($messageBody)));
+    $preview = mb_substr($cleanText, 0, 140);
+    if (mb_strlen($cleanText) > 140) $preview .= '…';
+
+    // ۱. اگر کاربر پیام داده باشد: ارسال اعلان به تیم مسئول فرآیند
+    if ($senderType === 'user') {
+        if ($respTeamId > 0) {
+            $title = "پیام جدید در گفتگوی فرآیند «{$procName}»";
+            $body = "کاربر {$senderName} در گفتگوی بهبود «{$impTitle}» پیامی فرستاد: «{$preview}»";
+            $link = BASE_URL . "/team/discussion.php?imp={$impId}";
+            $fromType = 'user';
+
+            $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetTeamID, Priority, Type) VALUES (?, ?, ?, ?, ?, ?, ?, 'normal', 'message')");
+            $ins->bind_param('ssssiii', $title, $body, $link, $fromType, $senderId, $procId, $respTeamId);
+            $ins->execute();
+            $ins->close();
+        }
+
+        // ارسال از طریق بله به سرپرست یا مسئول تیم فرآیند
+        if (function_exists('bale_notify_discussion_message')) {
+            bale_notify_discussion_message($db, $impId, 'user', $senderId, $messageBody, $senderName);
+        }
+    }
+    // ۲. اگر تیم فرآیند پاسخ داده باشد: ارسال اعلان به کاربر پیشنهاددهنده
+    elseif ($senderType === 'team') {
+        if ($reqType === 'user' && $reqId > 0) {
+            $teamLabel = !empty($info['TeamName']) ? $info['TeamName'] : 'تیم فرآیند';
+            $title = "پاسخ تیم فرآیند در گفتگوی «{$procName}»";
+            $body = "تیم فرآیند ({$teamLabel}) در گفتگوی «{$impTitle}» پاسخی ارسال کرد: «{$preview}»";
+            $link = BASE_URL . "/user/discussion.php?imp={$impId}";
+            $fromType = 'team';
+
+            $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type) VALUES (?, ?, ?, ?, ?, ?, ?, 'normal', 'message')");
+            $ins->bind_param('ssssiii', $title, $body, $link, $fromType, $senderId, $procId, $reqId);
+            $ins->execute();
+            $ins->close();
+
+            // ارسال پیام در بله به کاربر
+            if (function_exists('bale_notify_discussion_message')) {
+                bale_notify_discussion_message($db, $impId, 'team', $senderId, $messageBody, $teamLabel);
+            }
+        }
+    }
+    // ۳. اگر هرمس (AI) پاسخ داده باشد: اطلاع‌رسانی به هر دو طرف
+    elseif (in_array($senderType, ['hermes', 'ai'], true)) {
+        $title = "پاسخ داور هوشمند هرمس در گفتگوی «{$procName}»";
+        $body = "هرمس به پیام شما در گفتگوی «{$impTitle}» تحلیلی ارائه کرد: «{$preview}»";
+        $fromType = 'hermes';
+
+        // به کاربر
+        if ($reqType === 'user' && $reqId > 0) {
+            $userLink = BASE_URL . "/user/discussion.php?imp={$impId}";
+            $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type) VALUES (?, ?, ?, ?, 0, ?, ?, 'normal', 'message')");
+            $ins->bind_param('ssssii', $title, $body, $userLink, $fromType, $procId, $reqId);
+            $ins->execute();
+            $ins->close();
+        }
+
+        // به تیم
+        if ($respTeamId > 0) {
+            $teamLink = BASE_URL . "/team/discussion.php?imp={$impId}";
+            $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetTeamID, Priority, Type) VALUES (?, ?, ?, ?, 0, ?, ?, 'normal', 'message')");
+            $ins->bind_param('ssssii', $title, $body, $teamLink, $fromType, $procId, $respTeamId);
+            $ins->execute();
+            $ins->close();
+        }
+
+        // ارسال بله به کاربر
+        if (function_exists('bale_notify_discussion_message')) {
+            bale_notify_discussion_message($db, $impId, 'hermes', 0, $messageBody, 'هرمس');
+        }
+    }
+}
+
 /** هدر ناحیه تیم */
 function team_header(array $id, string $active, string $pageTitle): void
 {
@@ -217,15 +582,24 @@ function team_header(array $id, string $active, string $pageTitle): void
     ];
     $basicsActive = isset($basicsChildren[$active]) || $active === 'basics';
     $tid = (int)($id['id'] ?? 0);
-    $notifCount = 0;
+    $hermesNotifCount = 0;
+    $msgNotifCount = 0;
     try {
         $db = app_db();
-        $cntSt = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0");
-        $cntSt->bind_param('i', $tid);
-        $cntSt->execute();
-        $notifCount = (int)($cntSt->get_result()->fetch_assoc()['c'] ?? 0);
-        $cntSt->close();
+        $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
+        $cntH->bind_param('i', $tid);
+        $cntH->execute();
+        $hermesNotifCount = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
+        $cntH->close();
+
+        $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0 AND Type = 'message'");
+        $cntM->bind_param('i', $tid);
+        $cntM->execute();
+        $msgNotifCount = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
+        $cntM->close();
     } catch (Throwable) {}
+
+    $totalNotifCount = $hermesNotifCount + $msgNotifCount;
     ?><!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -256,9 +630,16 @@ function team_header(array $id, string $active, string $pageTitle): void
             </a>
 
             <div class="header-actions">
-                <a href="notifications.php" class="notif-bell-btn" title="اعلان‌های هرمس و رویدادها">
+                <!-- آیکون و شمارنده اختصاصی پیام‌های گفتگو -->
+                <a href="notifications.php?tab=messages" class="notif-bell-btn notif-msg-btn" title="پیام‌های گفتگو">
+                    <?= app_icon('discussion', '', 16) ?>
+                    <span id="msgNotifBadge" class="notif-badge msg-notif-badge" style="display:<?= $msgNotifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($msgNotifCount) ?></span>
+                </a>
+
+                <!-- آیکون و شمارنده اختصاصی اعلان‌های هوشمند داور هرمس -->
+                <a href="notifications.php?tab=hermes" class="notif-bell-btn notif-hermes-btn" title="اعلان‌های هوشمند هرمس">
                     <?= app_icon('bot', '', 17) ?>
-                    <span id="notifBadge" class="notif-badge" style="display:<?= $notifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($notifCount) ?></span>
+                    <span id="notifBadge" class="notif-badge hermes-notif-badge" style="display:<?= $hermesNotifCount > 0 ? 'flex' : 'none' ?>;"><?= farsi_num($hermesNotifCount) ?></span>
                 </a>
 
                 <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="تغییر پوسته تاریک و روشن" title="تغییر حالت شب و روز">
@@ -290,8 +671,9 @@ function team_header(array $id, string $active, string $pageTitle): void
                         </div>
                         <div class="user-dd-divider"></div>
                         <a href="notifications.php" class="user-dd-link">
-                            <?= app_icon('bot', '', 14) ?>
-                            <span>اعلان‌های هرمس</span>
+                            <?= app_icon('bell', '', 14) ?>
+                            <span>مرکز اعلان‌ها و پیام‌ها</span>
+                            <?php if ($totalNotifCount > 0): ?><span class="nav-badge" style="margin-right:auto"><?= farsi_num($totalNotifCount) ?></span><?php endif; ?>
                         </a>
                         <a href="improvements.php" class="user-dd-link">
                             <?= app_icon('improvements', '', 14) ?>
@@ -336,9 +718,9 @@ function team_header(array $id, string $active, string $pageTitle): void
                 <span class="tab-label">مدیریت فایل‌ها</span>
             </a>
             <a class="nav-item <?= $active === 'notifications' ? 'active' : '' ?>" href="notifications.php">
-                <?= app_icon('bot', 'tab-icon', 17) ?>
-                <span class="tab-label">اعلان‌های هرمس</span>
-                <?php if ($notifCount > 0): ?><span class="nav-badge"><?= farsi_num($notifCount) ?></span><?php endif; ?>
+                <?= app_icon('bell', 'tab-icon', 17) ?>
+                <span class="tab-label">اعلان‌ها</span>
+                <?php if ($totalNotifCount > 0): ?><span class="nav-badge"><?= farsi_num($totalNotifCount) ?></span><?php endif; ?>
             </a>
             <div class="nav-item has-sub <?= $basicsActive ? 'active' : '' ?>" id="basicsMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">
                 <?= app_icon('basics', 'tab-icon', 17) ?>
@@ -388,11 +770,11 @@ function team_header(array $id, string $active, string $pageTitle): void
 })();
 </script>
 <div id="hermesToastContainer" style="position:fixed;bottom:24px;left:24px;z-index:9999;display:flex;flex-direction:column;gap:12px;max-width:380px;pointer-events:none"></div>
+<div id="fastMsgToastContainer" style="position:fixed;bottom:24px;right:24px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:340px;pointer-events:none"></div>
 <script>
 (function() {
     let notifiedIds = new Set();
 
-    // Read dismissed notification IDs from localStorage so they persist across tabs and page navigation
     function getDismissedSet() {
         try {
             const raw = localStorage.getItem('robinflow_dismissed_notifs');
@@ -405,22 +787,40 @@ function team_header(array $id, string $active, string $pageTitle): void
         } catch (e) {}
         return new Set();
     }
-
     let dismissedSet = getDismissedSet();
+
+    function getSeenToastSet() {
+        try {
+            const raw = localStorage.getItem('robinflow_team_seen_toasts');
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) return new Set(arr.map(Number));
+            }
+        } catch (e) {}
+        return new Set();
+    }
+    let seenToastSet = getSeenToastSet();
+
+    function markToastSeen(nid) {
+        seenToastSet.add(nid);
+        notifiedIds.add(nid);
+        try {
+            const arr = Array.from(seenToastSet).slice(-300);
+            localStorage.setItem('robinflow_team_seen_toasts', JSON.stringify(arr));
+        } catch (e) {}
+    }
 
     window.dismissHermesNotif = function(notifId, toastEl) {
         const nid = parseInt(notifId);
         if (!nid) return;
 
-        // Immediately add to sets so no navigation or polling can pop it up again
         dismissedSet.add(nid);
-        notifiedIds.add(nid);
+        markToastSeen(nid);
         try {
             const arr = Array.from(dismissedSet).slice(-200);
             localStorage.setItem('robinflow_dismissed_notifs', JSON.stringify(arr));
         } catch (e) {}
 
-        // Smooth visual dismissal
         if (toastEl) {
             toastEl.style.opacity = '0';
             toastEl.style.transform = 'translateY(12px) scale(0.96)';
@@ -429,44 +829,122 @@ function team_header(array $id, string $active, string $pageTitle): void
             }, 250);
         }
 
-        // Notify server to mark notification as read in database
         fetch('<?= BASE_URL ?>/team/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
             .then(r => r.json())
             .then(data => {
-                if (data && typeof data.unread_count !== 'undefined') {
+                if (data && typeof data.hermes_unread_count !== 'undefined') {
                     const badge = document.getElementById('notifBadge');
                     if (badge) {
-                        if (data.unread_count > 0) {
-                            badge.style.display = 'flex';
-                            badge.textContent = data.unread_count;
-                        } else {
-                            badge.style.display = 'none';
-                        }
+                        badge.style.display = data.hermes_unread_count > 0 ? 'flex' : 'none';
+                        badge.textContent = data.hermes_unread_count;
                     }
                 }
             })
             .catch(() => {});
     };
 
+    function showFastMessageToast(n) {
+        const container = document.getElementById('fastMsgToastContainer');
+        if (!container) return;
+        const nid = parseInt(n.ID);
+        markToastSeen(nid);
+        const toast = document.createElement('div');
+        toast.className = 'fast-msg-toast';
+
+        let cleanBody = (n.Body || '').replace(/<[^>]*>/g, '').trim();
+        if (cleanBody.length > 70) cleanBody = cleanBody.substring(0, 70) + '…';
+
+        toast.innerHTML = `
+            <div class="fast-msg-avatar">💬</div>
+            <div class="fast-msg-body">
+                <div class="fast-msg-title">${n.Title || 'پیام جدید در گفتگو'}</div>
+                ${cleanBody ? `<div class="fast-msg-sub">${cleanBody}</div>` : ''}
+            </div>
+            <button type="button" class="fast-msg-close" title="بستن">×</button>
+        `;
+
+        function dismiss(markRead) {
+            markToastSeen(nid);
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px) scale(0.95)';
+            setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
+            if (markRead) {
+                dismissedSet.add(nid);
+                fetch('<?= BASE_URL ?>/team/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+                    .then(r => r.json())
+                    .then(res => {
+                        const mBadge = document.getElementById('msgNotifBadge');
+                        if (mBadge && typeof res.msg_unread_count !== 'undefined') {
+                            mBadge.style.display = res.msg_unread_count > 0 ? 'flex' : 'none';
+                            mBadge.textContent = res.msg_unread_count;
+                        }
+                    }).catch(() => {});
+            }
+        }
+
+        toast.addEventListener('click', function(e) {
+            if (e.target.closest('.fast-msg-close')) {
+                e.stopPropagation();
+                dismiss(true);
+                return;
+            }
+            dismiss(true);
+            if (n.Link) {
+                window.location.href = n.Link;
+            }
+        });
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast.parentElement) {
+                dismiss(false);
+            }
+        }, 3500);
+    }
+
     function pollHermesAlerts() {
         fetch('<?= BASE_URL ?>/team/notifications.php?check_unread=1')
             .then(r => r.json())
             .then(data => {
-                const badge = document.getElementById('notifBadge');
-                if (badge) {
-                    if (data.unread_count > 0) {
-                        badge.style.display = 'flex';
-                        badge.textContent = data.unread_count;
-                    } else {
-                        badge.style.display = 'none';
-                    }
+                // به‌روزرسانی شمارنده اعلان‌های هرمس
+                const hBadge = document.getElementById('notifBadge');
+                if (hBadge && typeof data.hermes_unread_count !== 'undefined') {
+                    hBadge.style.display = data.hermes_unread_count > 0 ? 'flex' : 'none';
+                    hBadge.textContent = data.hermes_unread_count;
                 }
-                if (data.notifications && data.notifications.length > 0) {
-                    data.notifications.forEach(n => {
+
+                // به‌روزرسانی شمارنده پیام‌های گفتگو
+                const mBadge = document.getElementById('msgNotifBadge');
+                if (mBadge && typeof data.msg_unread_count !== 'undefined') {
+                    mBadge.style.display = data.msg_unread_count > 0 ? 'flex' : 'none';
+                    mBadge.textContent = data.msg_unread_count;
+                }
+
+                const isNotifPage = window.location.pathname.indexOf('notifications.php') !== -1;
+
+                // نمایش توست تفصیلی برای اسناد و اعلان‌های هرمس (فقط یک بار برای همیشه)
+                if (data.hermes_notifications && data.hermes_notifications.length > 0) {
+                    data.hermes_notifications.forEach(n => {
                         const nid = parseInt(n.ID);
-                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid)) {
-                            notifiedIds.add(nid);
-                            showHermesToast(n);
+                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid) && !seenToastSet.has(nid)) {
+                            markToastSeen(nid);
+                            if (!isNotifPage) {
+                                showHermesToast(n);
+                            }
+                        }
+                    });
+                }
+
+                // نمایش توست سریع برای پیام‌های گفتگو (فقط یک بار برای همیشه)
+                if (data.message_notifications && data.message_notifications.length > 0) {
+                    data.message_notifications.forEach(n => {
+                        const nid = parseInt(n.ID);
+                        if (!notifiedIds.has(nid) && !dismissedSet.has(nid) && !seenToastSet.has(nid)) {
+                            markToastSeen(nid);
+                            if (!isNotifPage) {
+                                showFastMessageToast(n);
+                            }
                         }
                     });
                 }
@@ -484,7 +962,15 @@ function team_header(array $id, string $active, string $pageTitle): void
         
         let linkHtml = '';
         if (n.Link) {
-            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">مشاهده و دانلود سند PDF ←</a>`;
+            let btnText = 'مشاهده پیوند مرتبط ←';
+            if (n.Link.indexOf('.pdf') !== -1) {
+                btnText = 'مشاهده و دانلود سند PDF ←';
+            } else if (n.Link.indexOf('discussion.php') !== -1) {
+                btnText = 'ورود به گفتگو ←';
+            } else if (n.Link.indexOf('file.php') !== -1 || n.Link.indexOf('processes.php') !== -1) {
+                btnText = 'مشاهده پرونده فرآیند ←';
+            }
+            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${btnText}</a>`;
         }
         
         toast.innerHTML = `
@@ -496,7 +982,6 @@ function team_header(array $id, string $active, string $pageTitle): void
             ${linkHtml}
         `;
         container.appendChild(toast);
-        // Automatically hide visually after 16 seconds if user doesn't touch it
         setTimeout(() => {
             if (toast.parentElement) {
                 toast.style.opacity = '0';

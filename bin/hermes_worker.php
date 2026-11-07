@@ -25,6 +25,7 @@ require_once __DIR__ . '/../inc/hermes.php';
 require_once __DIR__ . '/../inc/files.php';
 require_once __DIR__ . '/../inc/pdf_generator.php';
 require_once __DIR__ . '/../inc/bale.php';
+require_once __DIR__ . '/../inc/layout.php';
 
 $arg1 = $argv[1] ?? '--queue';
 $arg2 = $argv[2] ?? null;
@@ -155,13 +156,106 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
     }
 }
 
+/**
+ * اجرای تسک پس‌زمینه پاسخ هرمس به منشن گفتگو (@Hermes)
+ */
+function worker_run_discussion_mention_task(mysqli $db, int $taskId): bool
+{
+    $timeStart = microtime(true);
+    echo "-> [Task #{$taskId}] Starting Hermes Discussion Mention Worker...\n";
+
+    $st = $db->prepare("SELECT * FROM HermesTasks WHERE ID = ? AND TaskType = 'discussion_mention'");
+    $st->bind_param('i', $taskId);
+    $st->execute();
+    $task = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$task) {
+        echo "-> ERROR: Task #{$taskId} not found or not discussion_mention.\n";
+        return false;
+    }
+
+    if ($task['Status'] === 'completed') {
+        echo "-> Task #{$taskId} is already completed.\n";
+        return true;
+    }
+
+    $st = $db->prepare("UPDATE HermesTasks SET Status = 'running', UpdatedAt = NOW() WHERE ID = ?");
+    $st->bind_param('i', $taskId);
+    $st->execute();
+    $st->close();
+
+    $impId = (int)$task['RefID'];
+    $payload = json_decode((string)$task['Payload'], true) ?: [];
+    $prompt = (string)($payload['prompt'] ?? '');
+    $senderName = (string)($payload['sender_name'] ?? 'کاربر');
+    $senderType = (string)($payload['sender_type'] ?? 'user');
+
+    echo "   * Generating Hermes AI response for Improvement #{$impId} ...\n";
+    $answer = hermes_answer_discussion_mention($db, $impId, $prompt, $senderName, $senderType);
+
+    if ($answer && trim($answer) !== '') {
+        $aiType = 'hermes';
+        $aiId = 0;
+        $stAi = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement', ?, ?, ?, ?)");
+        $stAi->bind_param('isis', $impId, $aiType, $aiId, $answer);
+        $stAi->execute();
+        $stAi->close();
+
+        $resJson = json_encode(['answer' => $answer], JSON_UNESCAPED_UNICODE);
+        $st = $db->prepare("UPDATE HermesTasks SET Status = 'completed', Result = ?, UpdatedAt = NOW() WHERE ID = ?");
+        $st->bind_param('si', $resJson, $taskId);
+        $st->execute();
+        $st->close();
+
+        echo "   * Dispatching notifications for Hermes answer...\n";
+        discussion_dispatch_notifications($db, $impId, 'hermes', 0, $answer, 'هرمس');
+
+        $elapsed = round(microtime(true) - $timeStart, 2);
+        echo "-> SUCCESS: Discussion Mention Task #{$taskId} completed in {$elapsed}s.\n";
+        return true;
+    } else {
+        $errMsg = 'پاسخی از مدل هرمس دریافت نشد.';
+        $st = $db->prepare("UPDATE HermesTasks SET Status = 'failed', ErrorMessage = ?, UpdatedAt = NOW() WHERE ID = ?");
+        $st->bind_param('si', $errMsg, $taskId);
+        $st->execute();
+        $st->close();
+
+        echo "-> FAILED: {$errMsg}\n";
+        return false;
+    }
+}
+
+/**
+ * هدایت اجرای تسک بر اساس نوع TaskType
+ */
+function worker_route_task(mysqli $db, int $taskId): bool
+{
+    $st = $db->prepare("SELECT TaskType FROM HermesTasks WHERE ID = ?");
+    $st->bind_param('i', $taskId);
+    $st->execute();
+    $task = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$task) {
+        echo "-> Task #{$taskId} does not exist.\n";
+        return false;
+    }
+
+    if ($task['TaskType'] === 'discussion_mention') {
+        return worker_run_discussion_mention_task($db, $taskId);
+    }
+
+    return worker_run_revision_task($db, $taskId);
+}
+
 // شاخه‌بندی دستورات دریافتی
 if ($arg1 === '--task' && is_numeric($arg2)) {
     // اجرای یک تسک خاص
-    worker_run_revision_task($db, (int)$arg2);
+    worker_route_task($db, (int)$arg2);
 } elseif (str_starts_with($arg1, '--task=') && is_numeric(substr($arg1, 7))) {
     // اجرای یک تسک با فرمت --task=ID
-    worker_run_revision_task($db, (int)substr($arg1, 7));
+    worker_route_task($db, (int)substr($arg1, 7));
 } elseif (is_numeric($arg1) && (int)$arg1 > 0) {
     // ارزیابی یک پیشنهاد بهبود خاص
     $impId = (int)$arg1;
@@ -187,14 +281,14 @@ if ($arg1 === '--task' && is_numeric($arg2)) {
     // پردازش صف همه‌جانبه (Queue Mode): ارزیابی‌ها و بازنگری‌ها
     echo "-> Checking for pending tasks in queue...\n";
 
-    // ۱. پردازش تسک‌های بازنگری معلق (HermesTasks)
+    // ۱. پردازش تسک‌های معلق صف (HermesTasks)
     $stTasks = $db->query("SELECT ID FROM HermesTasks WHERE Status = 'queued' ORDER BY CreatedAt ASC LIMIT 5");
     if ($stTasks) {
         $taskRows = $stTasks->fetch_all(MYSQLI_ASSOC);
         if (!empty($taskRows)) {
-            echo "-> Found " . count($taskRows) . " pending revision task(s).\n";
+            echo "-> Found " . count($taskRows) . " pending task(s).\n";
             foreach ($taskRows as $tr) {
-                worker_run_revision_task($db, (int)$tr['ID']);
+                worker_route_task($db, (int)$tr['ID']);
                 usleep(300000); // 0.3s
             }
         }

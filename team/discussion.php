@@ -86,7 +86,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st = $db->prepare("INSERT INTO Responses (RefType, RefID, SenderType, SenderID, Body) VALUES ('improvement',?,?,?,?)");
                 $st->bind_param('isis', $impId, $senderType, $tid, $body);
                 $st->execute(); $st->close();
-                flash_set('ok', 'پاسخ شما با موفقیت ثبت شد.');
+
+                $teamLabel = !empty($id['name']) ? $id['name'] : 'تیم فرآیند';
+
+                // ۱. ارسال اعلان درون‌برنامه‌ای و بله به کاربر پیشنهاددهنده
+                discussion_dispatch_notifications($db, $impId, 'team', $tid, $body, $teamLabel);
+
+                // ۲. بررسی منشن شدن هرمس (@Hermes یا @هرمس) - اجرای کاملاً غیرهمگام (Async)
+                if (preg_match('/@(?:hermes|هرمس)/iu', $body)) {
+                    hermes_dispatch_async_discussion_mention($db, $impId, $body, $teamLabel, 'team', $tid);
+                    flash_set('ok', 'پاسخ تیم ثبت شد. هرمس در حال پردازش و نگارش پاسخ در پس‌زمینه است.');
+                } else {
+                    flash_set('ok', 'پاسخ شما با موفقیت ثبت شد.');
+                }
             }
             header('Location: ' . $redirectUrl);
             exit;
@@ -97,6 +109,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* ---------- نمای رشته ---------- */
 $impId = (int)($_GET['imp'] ?? 0);
 if ($impId > 0) {
+    /* ---------- بررسی وضعیت تسک هرمس از طریق AJAX ---------- */
+    if (isset($_GET['poll_task_status']) && isset($_GET['task_id'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        $checkTaskId = (int)$_GET['task_id'];
+        $stT = $db->prepare("SELECT Status FROM HermesTasks WHERE ID = ? AND RefID = ?");
+        $stT->bind_param('ii', $checkTaskId, $impId);
+        $stT->execute();
+        $tRow = $stT->get_result()->fetch_assoc();
+        $stT->close();
+        $tStatus = $tRow['Status'] ?? 'none';
+        echo json_encode([
+            'status' => $tStatus,
+            'completed' => ($tStatus === 'completed'),
+            'failed' => ($tStatus === 'failed')
+        ]);
+        exit;
+    }
+
     $st = $db->prepare(
         "SELECT i.*, p.Name AS ProcName, p.ID AS Pid, p.ResponsibleTeamID, cat.Title AS CatTitle,
                 u.Name AS ReqName, u.Family AS ReqFamily, pt.TeamName AS RespTeamName
@@ -137,6 +167,12 @@ if ($impId > 0) {
     $msgs = []; $res = $st->get_result();
     while ($r = $res->fetch_assoc()) $msgs[] = $r;
     $st->close();
+
+    $stMention = $db->prepare("SELECT ID, Status FROM HermesTasks WHERE TaskType = 'discussion_mention' AND RefID = ? AND Status IN ('queued', 'running', 'pending') ORDER BY ID DESC LIMIT 1");
+    $stMention->bind_param('i', $impId);
+    $stMention->execute();
+    $activeHermesTask = $stMention->get_result()->fetch_assoc();
+    $stMention->close();
     ?>
     <?php team_header($id, 'discussion', 'گفتگو: ' . $imp['Title']); ?>
     <div class="crumbs"><a href="discussion.php">گفتگو در فرآیندها</a> ← <?= e($imp['Title']) ?></div>
@@ -182,31 +218,102 @@ if ($impId > 0) {
         <div class="thread">
             <?php if (!$msgs): ?><div class="empty"><span class="ico"><?= app_icon('discussion', '', 36) ?></span><p>هنوز پیامی در این گفتگو ثبت نشده است.</p></div><?php endif; ?>
             <?php foreach ($msgs as $m):
+                $isHermes = in_array($m['SenderType'], ['hermes', 'ai'], true);
                 $isTeam = $m['SenderType'] === 'team';
-                $who = $isTeam ? ($m['TeamName'] ?? 'تیم فرآیند') : trim((string)$m['Name'] . ' ' . (string)$m['Family']); ?>
-                <div class="msg <?= $isTeam ? 'from-team' : 'from-user' ?>">
+                if ($isHermes) {
+                    $who = 'داور هوش مصنوعی هرمس (Hermes AI)';
+                    $msgClass = 'from-hermes';
+                    $iconHtml = app_icon('hermes', 'chat-avatar-img', 18);
+                } elseif ($isTeam) {
+                    $who = $m['TeamName'] ?? 'تیم فرآیند';
+                    $msgClass = 'from-team';
+                    $iconHtml = app_icon('team', '', 14);
+                } else {
+                    $who = trim((string)$m['Name'] . ' ' . (string)$m['Family']) ?: 'کاربر پیشنهاددهنده';
+                    $msgClass = 'from-user';
+                    $iconHtml = app_icon('users', '', 14);
+                }
+                $bodyHtml = preg_replace('/(@(?:hermes|هرمس))/iu', '<span class="mention-tag">$1</span>', nl2br(e($m['Body'])));
+            ?>
+                <div class="msg <?= $msgClass ?>">
                     <div class="m-head">
                         <span style="display:inline-flex;align-items:center;gap:6px">
-                            <?= $isTeam ? app_icon('team', '', 14) : app_icon('users', '', 14) ?>
+                            <?= $iconHtml ?>
                             <b><?= e($who) ?></b>
                         </span>
                         <span><?= e(fmt_date($m['CreatedAt'])) ?></span>
                     </div>
-                    <p class="m-body"><?= e($m['Body']) ?></p>
+                    <div class="m-body"><?= $bodyHtml ?></div>
                 </div>
             <?php endforeach; ?>
+
+            <?php if ($activeHermesTask): ?>
+                <div id="hermesThinkingBox" class="msg from-hermes thinking-pulse" data-task-id="<?= (int)$activeHermesTask['ID'] ?>">
+                    <div class="m-head">
+                        <span style="display:inline-flex;align-items:center;gap:6px">
+                            <?= app_icon('hermes', 'chat-avatar-img', 18) ?>
+                            <b>داور هوش مصنوعی هرمس (Hermes AI)</b>
+                        </span>
+                        <span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:11px">در حال پردازش...</span>
+                    </div>
+                    <div class="m-body" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+                        <div class="typing-dots"><span></span><span></span><span></span></div>
+                        <span style="color:var(--text);font-weight:600">هرمس در حال نگارش پاسخ تخصصی به گفتگو است…</span>
+                    </div>
+                    <small style="color:var(--muted);font-size:11.5px;display:block;margin-top:2px">
+                        می‌توانید آزادانه این صفحه را ترک کرده و به کارهای دیگر برسید؛ پاسخ به محض آماده شدن در گفتگو درج خواهد شد.
+                    </small>
+                </div>
+            <?php endif; ?>
         </div>
 
         <?php if ($isOwnerTeam): ?>
-        <form method="post" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <form method="post" style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
             <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="imp_id" value="<?= $impId ?>">
-            <label class="field" style="flex:1;min-width:240px;margin:0">
-                <span class="field-label">پاسخ تیم</span>
-                <textarea name="body" required maxlength="2000" rows="2" placeholder="پاسخ خود را بنویسید…"></textarea>
-            </label>
-            <button class="btn">ارسال پاسخ</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+                <span class="field-label" style="margin:0;font-weight:700">پاسخ تیم فرآیند:</span>
+                <button type="button" class="btn-mention-hermes" onclick="insertHermesMention('replyBodyTeam')">
+                    <?= app_icon('bot', '', 14) ?>
+                    <span>پرسش از هرمس (@Hermes)</span>
+                </button>
+            </div>
+            <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+                <label class="field" style="flex:1;min-width:240px;margin:0">
+                    <textarea id="replyBodyTeam" name="body" required maxlength="2000" rows="2" placeholder="پاسخ تیم را بنویسید… (برای استعلام و مشورت با هوش مصنوعی هرمس، از @Hermes استفاده کنید)"></textarea>
+                </label>
+                <button class="btn" style="height:44px">ارسال پاسخ</button>
+            </div>
         </form>
+        <script>
+        function insertHermesMention(textareaId) {
+            const el = document.getElementById(textareaId);
+            if (!el) return;
+            const tag = '@Hermes ';
+            if (!el.value.includes('@Hermes') && !el.value.includes('@هرمس')) {
+                el.value = tag + el.value;
+            }
+            el.focus();
+        }
+
+        (function() {
+            const thinkingBox = document.getElementById('hermesThinkingBox');
+            if (thinkingBox) {
+                const taskId = thinkingBox.getAttribute('data-task-id');
+                const pollTimer = setInterval(() => {
+                    fetch('discussion.php?imp=<?= $impId ?>&poll_task_status=1&task_id=' + encodeURIComponent(taskId))
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data && (data.completed || data.failed)) {
+                                clearInterval(pollTimer);
+                                window.location.reload();
+                            }
+                        })
+                        .catch(() => {});
+                }, 2500);
+            }
+        })();
+        </script>
         <?php endif; ?>
     </div>
     <?php app_footer(); exit;

@@ -63,6 +63,12 @@ function app_icon(string $name, string $class = '', int $size = 18): string
             . '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'
             . '</svg>',
 
+        // زنگوله / اعلان‌ها (Bell / Notifications)
+        'bell' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
+            . '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>'
+            . '<path d="M13.73 21a2 2 0 0 1-3.46 0"/>'
+            . '</svg>',
+
         // خروج (Logout)
         'logout' => '<svg class="' . $cls . '" width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
             . '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'

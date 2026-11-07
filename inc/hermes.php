@@ -201,6 +201,58 @@ function hermes_dispatch_async_revision(mysqli $db, int $improvementId, int $tea
 }
 
 /**
+ * ارسال غیراسنکرون (Async) درخواست پاسخ هرمس به منشن گفتگو (@Hermes)
+ * تسک را در HermesTasks ثبت و پردازش را در پس‌زمینه می‌سپارد و کنترل را بلافاصله برمی‌گرداند.
+ */
+function hermes_dispatch_async_discussion_mention(
+    mysqli $db,
+    int $impId,
+    string $prompt,
+    string $senderName,
+    string $senderType,
+    int $senderId = 0
+): int {
+    $payload = json_encode([
+        'prompt' => $prompt,
+        'sender_name' => $senderName,
+        'sender_type' => $senderType,
+        'sender_id' => $senderId,
+    ], JSON_UNESCAPED_UNICODE);
+
+    $st = $db->prepare("INSERT INTO HermesTasks (TaskType, RefID, TeamID, Status, Payload) VALUES ('discussion_mention', ?, ?, 'queued', ?)");
+    $st->bind_param('iis', $impId, $senderId, $payload);
+    $st->execute();
+    $taskId = (int)$db->insert_id;
+    $st->close();
+
+    if ($taskId <= 0) {
+        return 0;
+    }
+
+    $phpBin = hermes_find_php_binary();
+    $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
+    if (!$workerPath || !file_exists($workerPath)) {
+        return $taskId;
+    }
+
+    $arg = '--task ' . $taskId;
+    $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
+
+    if (stripos(PHP_OS, 'WIN') === 0) {
+        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, $arg, $logFile);
+        $handle = @popen($cmd, 'r');
+        if ($handle) {
+            pclose($handle);
+        }
+    } else {
+        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, $arg, $logFile);
+        @exec($cmd);
+    }
+
+    return $taskId;
+}
+
+/**
  * ارزیابی تخصصی یک پیشنهاد بهبود توسط هرمس
  * بررسی پارادوکس‌ها و عوارض جانبی بر سایر فرآیندهای سازمان
  *
@@ -1108,5 +1160,148 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
         'pdf_url' => fm_url($pdfRelPath),
         'error' => null
     ];
+}
+
+/**
+ * پاسخ هوشمند هرمس به منشن شدن در گفتگوی پیشنهاد بهبود (@Hermes)
+ *
+ * @param mysqli $db شیء اتصال به دیتابیس
+ * @param int $impId شناسه بهبود
+ * @param string $mentionPrompt متن پیامی که هرمس در آن منشن شده
+ * @param string $senderLabel نام فرستنده پیام
+ * @param string $senderType نوع فرستنده ('user' یا 'team')
+ * @return string متن پاسخ کارشناسی هرمس
+ */
+function hermes_answer_discussion_mention(
+    mysqli $db,
+    int $impId,
+    string $mentionPrompt,
+    string $senderLabel,
+    string $senderType
+): string {
+    // 1. استخراج مشخصات فرآیند و پیشنهاد بهبود
+    $st = $db->prepare(
+        "SELECT i.*, p.Name AS ProcName, p.Version AS ProcVersion, p.Description AS ProcDesc,
+                p.FilePath AS ProcFilePath, cat.Title AS CatTitle, pt.TeamName,
+                u.Name AS ReqName, u.Family AS ReqFamily
+         FROM Improvements i
+         JOIN Processes p ON p.ID = i.ProcessID
+         JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+         LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
+         LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type = 'user'
+         WHERE i.ID = ?"
+    );
+    $st->bind_param('i', $impId);
+    $st->execute();
+    $imp = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$imp) {
+        return 'پیشنهاد بهبود مورد نظر یافت نشد.';
+    }
+
+    // 2. تلاش برای خواندن چکیده مستندات فرآیند از دیسک
+    $docExcerpt = '';
+    $filePath = trim((string)($imp['ProcFilePath'] ?? ''));
+    if ($filePath !== '') {
+        $absDir = APP_ROOT . DIRECTORY_SEPARATOR . 'processes' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $filePath);
+        if (is_dir($absDir)) {
+            $files = @scandir($absDir) ?: [];
+            foreach ($files as $f) {
+                if (str_ends_with($f, '.txt') && !str_starts_with($f, '.')) {
+                    $c = @file_get_contents($absDir . DIRECTORY_SEPARATOR . $f);
+                    if ($c !== false && trim($c) !== '') {
+                        $docExcerpt .= "\nمستند («{$f}»):\n" . mb_substr(trim($c), 0, 2500) . "\n";
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. دریافت تاریخچه پیام‌های اخیر این گفتگو
+    $st = $db->prepare(
+        "SELECT r.SenderType, r.Body, r.CreatedAt,
+                u.Name AS UserName, u.Family AS UserFamily,
+                t.TeamName
+         FROM Responses r
+         LEFT JOIN Personnel u ON u.ID = r.SenderID AND r.SenderType = 'user'
+         LEFT JOIN ProcessTeams t ON t.ID = r.SenderID AND r.SenderType = 'team'
+         WHERE r.RefType = 'improvement' AND r.RefID = ?
+         ORDER BY r.ID ASC
+         LIMIT 8"
+    );
+    $st->bind_param('i', $impId);
+    $st->execute();
+    $histRes = $st->get_result();
+    $transcript = '';
+    while ($hr = $histRes->fetch_assoc()) {
+        $speaker = 'کاربر';
+        if ($hr['SenderType'] === 'team') {
+            $speaker = 'تیم فرآیند (' . ($hr['TeamName'] ?: 'تیم') . ')';
+        } elseif (in_array($hr['SenderType'], ['hermes', 'ai'], true)) {
+            $speaker = 'هوش مصنوعی هرمس';
+        } else {
+            $speaker = 'کاربر (' . trim((string)$hr['UserName'] . ' ' . (string)$hr['UserFamily']) . ')';
+        }
+        $transcript .= "• {$speaker}: " . trim($hr['Body']) . "\n";
+    }
+    $st->close();
+
+    if ($transcript === '') {
+        $transcript = '(هنوز پیامی قبل از این ثبت نشده است)';
+    }
+
+    // 4. تنظیم پرامپت هرمس
+    $systemPrompt = "شما «هرمس (Hermes)»، هوش مصنوعی داور و تحلیل‌گر ارشد فرآیندهای سازمانی در سامانه رابین‌فلو (RabinFlow) هستید.\n"
+        . "هم‌اکنون در یک رشته گفتگوی سه‌جانبه (کاربر، تیم مهندسی فرآیند، و هرمس) پیرامون یک پیشنهاد بهبود، با ذکر @Hermes منشن شده‌اید.\n\n"
+        . "اصول و راهنمای پاسخ‌دهی:\n"
+        . "۱. پاسخ را کاملاً به زبان فارسی، با لحنی حرفه‌ای، مستدل، محترمانه و دقیق ارائه دهید.\n"
+        . "۲. چنانچه پرسش پیرامون ارزیابی و رأی قبلی شما (تأیید، عدم تأیید، تعارضات، عوارض جانبی یا پیشنهادات بازنگری) است، دلایل تحلیلی خود را توضیح دهید و راهکار رفع تعارض را بیان کنید.\n"
+        . "۳. چنانچه پرسش درباره فرآیند، الزامات اجرایی، مراحل، مسئولین یا استانداردهای کاری است، با تکیه بر اطلاعات و مستندات فرآیند پاسخ دهید.\n"
+        . "۴. به عنوان یک میانجی هوشمند و بی‌طرف، به تعامل سازنده میان کاربر و تیم فرآیند کمک کنید تا تصمیمی کارآمد و استاندارد برای سازمان اتخاذ شود.\n"
+        . "۵. پاسخ را کاربردی، منسجم و شفاف بنویسید و از تعارفات طولانی خودداری کنید.";
+
+    $verdictLabel = match ($imp['AiVerdict'] ?? '') {
+        'yes' => 'تأیید شده (بدون تعارض)',
+        'no' => 'عدم تأیید (دارای تعارض یا عارضه جانبی)',
+        'pending' => 'در صف بررسی',
+        default => 'ثبت نشده'
+    };
+
+    $userPrompt = "اطلاعات فرآیند:\n"
+        . "- نام فرآیند: «{$imp['ProcName']}» (نسخه فعلی: {$imp['ProcVersion']})\n"
+        . "- دسته‌بندی: {$imp['CatTitle']}\n"
+        . "- تیم مسئول: " . ($imp['TeamName'] ?: 'تیم فرآیند') . "\n"
+        . "- شرح هدف فرآیند: " . ($imp['ProcDesc'] ?: 'ثبت نشده') . "\n"
+        . ($docExcerpt ? $docExcerpt . "\n" : '')
+        . "پیشنهاد بهبود جاری:\n"
+        . "- عنوان: «{$imp['Title']}»\n"
+        . "- شرح پیشنهاد: " . ($imp['Description'] ?: 'توضیحی ثبت نشده') . "\n"
+        . "- وضعیت رسیدگی: " . ($imp['Status'] ?? 'pending') . "\n\n"
+        . "سوابق ارزیابی قبلی داور هرمس:\n"
+        . "- نظر کلی داور: {$verdictLabel}\n"
+        . "- تحلیل و توصیه‌های تفصیلی هرمس: " . ($imp['AiAnalysis'] ?: 'هنوز ارزیابی تفصیلی ثبت نشده است') . "\n\n"
+        . "تاریخچه پیام‌های اخیر در این رشته گفتگو:\n"
+        . "{$transcript}\n\n"
+        . "پرسش جدید:\n"
+        . "فرستنده: {$senderLabel} (" . ($senderType === 'team' ? 'عضو تیم مهندسی فرآیند' : 'پرسنل/کاربر پیشنهاددهنده') . ")\n"
+        . "متن پیام و سوال مطرح‌شده با ذکر @Hermes:\n"
+        . "«{$mentionPrompt}»\n\n"
+        . "پاسخ تحلیلی، کارشناسی و دقیق خود را به عنوان «هرمس» برای این گفتگو بنویسید:";
+
+    $messages = [
+        ['role' => 'system', 'content' => $systemPrompt],
+        ['role' => 'user', 'content' => $userPrompt],
+    ];
+
+    $response = hermes_chat($messages, 0.25, 1200, 60);
+
+    if ($response && trim($response) !== '') {
+        return trim($response);
+    }
+
+    return "سلام {$senderLabel} گرامی. پیام شما و منشن @Hermes را دریافت کردم.\n"
+         . "در حال حاضر ارتباط با سرور هوش مصنوعی به دلیل بار پردازشی موقتاً با تاخیر مواجه شده است. لطفاً چند لحظه بعد مجدداً با ذکر @Hermes سوال خود را مطرح نمایید.";
 }
 

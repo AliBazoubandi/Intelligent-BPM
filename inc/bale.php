@@ -565,3 +565,123 @@ function bale_notify_process_change(
     ];
 }
 
+/**
+ * ارسال اعلان بله برای پیام‌های جدید در گفتگوی فرآیند (بین کاربر، تیم و هرمس)
+ */
+function bale_notify_discussion_message(
+    mysqli $db,
+    int $impId,
+    string $senderType,
+    int $senderId,
+    string $messageBody,
+    string $senderLabel
+): bool {
+    if (!defined('BALE_API_ENABLED') || !BALE_API_ENABLED) {
+        return false;
+    }
+
+    $st = $db->prepare(
+        "SELECT i.ID, i.Title AS ImpTitle, i.ProcessID, i.requester_type, i.requester_id,
+                p.Name AS ProcName, p.ResponsibleTeamID, pt.TeamName, pt.LeaderPersonnelID
+         FROM Improvements i
+         JOIN Processes p ON p.ID = i.ProcessID
+         LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
+         WHERE i.ID = ?"
+    );
+    $st->bind_param('i', $impId);
+    $st->execute();
+    $info = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$info) return false;
+
+    $procId = (int)$info['ProcessID'];
+    $procName = (string)$info['ProcName'];
+    $impTitle = (string)$info['ImpTitle'];
+    $cleanSnippet = mb_substr(trim(preg_replace('/\s+/', ' ', strip_tags($messageBody))), 0, 180);
+
+    // ۱. ارسال به سرپرست یا مخاطب تیم فرآیند وقتی کاربر پیام می‌دهد
+    if ($senderType === 'user') {
+        $leaderId = (int)($info['LeaderPersonnelID'] ?? 0);
+        $phone = '';
+        $recName = '';
+        if ($leaderId > 0) {
+            $pst = $db->prepare("SELECT Phone, BaleChatID, Name, Family FROM Personnel WHERE ID = ?");
+            $pst->bind_param('i', $leaderId);
+            $pst->execute();
+            $leader = $pst->get_result()->fetch_assoc();
+            $pst->close();
+            if ($leader) {
+                $phone = trim((string)($leader['Phone'] ?: $leader['BaleChatID']));
+                $recName = trim($leader['Name'] . ' ' . $leader['Family']);
+            }
+        }
+
+        // اگر شماره لیدر ست نبود، بررسی متولی فرآیند در چارت سازمانی
+        if ($phone === '') {
+            $recs = bale_get_process_recipients($db, $procId);
+            foreach ($recs as $r) {
+                if ($r['role'] === 'owner' && !empty($r['phone'])) {
+                    $phone = $r['phone'];
+                    $recName = $r['name'];
+                    break;
+                }
+            }
+        }
+
+        if ($phone === '') return false;
+
+        $text = "💬 پیام جدید در گفتگوی فرآیند «{$procName}»\n"
+              . "📋 موضوع بهبود: «{$impTitle}»\n"
+              . "👤 فرستنده: {$senderLabel} (کاربر)\n\n"
+              . "متن پیام:\n«{$cleanSnippet}»\n\n"
+              . "جهت مشاهده رشته گفتگو و پاسخگویی، روی پیوند زیر بزنید:";
+        $link = bale_sanitize_url(BASE_URL . '/team/discussion.php?imp=' . $impId, $procId);
+
+        $res = bale_send_message($phone, $text, [
+            'process_id' => $procId,
+            'personnel_id' => $leaderId ?: null,
+            'recipient_name' => $recName,
+            'recipient_position' => 'تیم مسئول فرآیند',
+        ], $link);
+
+        return $res['success'] ?? false;
+    }
+    // ۲. ارسال به کاربر پیشنهاددهنده وقتی تیم فرآیند یا هرمس پاسخ می‌دهد
+    elseif ($senderType === 'team' || in_array($senderType, ['hermes', 'ai'], true)) {
+        $reqUserId = (int)($info['requester_id'] ?? 0);
+        if ($info['requester_type'] !== 'user' || $reqUserId <= 0) {
+            return false;
+        }
+
+        $pst = $db->prepare("SELECT Phone, BaleChatID, Name, Family FROM Personnel WHERE ID = ?");
+        $pst->bind_param('i', $reqUserId);
+        $pst->execute();
+        $user = $pst->get_result()->fetch_assoc();
+        $pst->close();
+
+        if (!$user) return false;
+        $phone = trim((string)($user['Phone'] ?: $user['BaleChatID']));
+        if ($phone === '') return false;
+
+        $fromTitle = in_array($senderType, ['hermes', 'ai'], true) ? 'هوش مصنوعی هرمس' : ('تیم فرآیند (' . $senderLabel . ')');
+        $text = "💬 پاسخ جدید در گفتگوی فرآیند «{$procName}»\n"
+              . "📋 موضوع بهبود: «{$impTitle}»\n"
+              . "👤 فرستنده: {$fromTitle}\n\n"
+              . "متن پاسخ:\n«{$cleanSnippet}»\n\n"
+              . "جهت مشاهده پاسخ و ادامه گفتگو، روی پیوند زیر بزنید:";
+        $link = bale_sanitize_url(BASE_URL . '/user/discussion.php?imp=' . $impId, $procId);
+
+        $res = bale_send_message($phone, $text, [
+            'process_id' => $procId,
+            'personnel_id' => $reqUserId,
+            'recipient_name' => trim($user['Name'] . ' ' . $user['Family']),
+            'recipient_position' => 'پیشنهاددهنده بهبود',
+        ], $link);
+
+        return $res['success'] ?? false;
+    }
+
+    return false;
+}
+
