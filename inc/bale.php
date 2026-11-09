@@ -478,6 +478,11 @@ function bale_notify_process_change(
         $candidate = APP_ROOT . DIRECTORY_SEPARATOR . 'processes' . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $proc['FilePath']), DIRECTORY_SEPARATOR);
         if (is_file($candidate)) {
             $attachmentPath = $candidate;
+        } elseif (is_dir($candidate)) {
+            $pdfs = glob($candidate . DIRECTORY_SEPARATOR . '*.pdf');
+            if (!empty($pdfs)) {
+                $attachmentPath = end($pdfs);
+            }
         }
     }
 

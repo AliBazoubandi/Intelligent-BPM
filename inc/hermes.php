@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/icons.php';
 require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/pdf_generator.php';
+require_once __DIR__ . '/bale.php';
 
 /**
  * بررسی در دسترس بودن سرویس هرمس
@@ -1304,4 +1305,533 @@ function hermes_answer_discussion_mention(
     return "سلام {$senderLabel} گرامی. پیام شما و منشن @Hermes را دریافت کردم.\n"
          . "در حال حاضر ارتباط با سرور هوش مصنوعی به دلیل بار پردازشی موقتاً با تاخیر مواجه شده است. لطفاً چند لحظه بعد مجدداً با ذکر @Hermes سوال خود را مطرح نمایید.";
 }
+
+/**
+ * تبدیل صوت مصاحبه به متن فارسی با استفاده از اسکریپت پایتون و ابزارهای صوتی
+ *
+ * @param string $audioFilePath مسیر فایل صوتی روی دیسک
+ * @return array{success:bool, text:string, error?:string, message?:string}
+ */
+function hermes_transcribe_audio(string $audioFilePath): array
+{
+    if (!file_exists($audioFilePath)) {
+        return ['success' => false, 'text' => '', 'error' => 'فایل صوتی یافت نشد.'];
+    }
+
+    $pyScript = APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'transcribe_audio.py';
+    if (!file_exists($pyScript)) {
+        return ['success' => false, 'text' => '', 'error' => 'ماژول تبدیل صوت به متن (transcribe_audio.py) یافت نشد.'];
+    }
+
+    // انتخاب باینری پایتون
+    $python = 'python';
+    if (file_exists('C:\\Python314\\python.exe')) {
+        $python = 'C:\\Python314\\python.exe';
+    } elseif (file_exists('C:\\Program Files\\Python312\\python.exe')) {
+        $python = 'C:\\Program Files\\Python312\\python.exe';
+    }
+
+    $cmd = 'set PYTHONIOENCODING=utf-8 && ' . escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($audioFilePath) . ' 2>&1';
+    $output = shell_exec($cmd);
+
+    if (!$output) {
+        return ['success' => false, 'text' => '', 'error' => 'پردازش فایل صوتی با خطا مواجه شد.'];
+    }
+
+    if (preg_match('/\{[\s\S]*\}/u', $output, $m)) {
+        $json = json_decode($m[0], true);
+        if (is_array($json)) {
+            return [
+                'success' => (bool)($json['success'] ?? false),
+                'text' => trim((string)($json['text'] ?? '')),
+                'error' => $json['error'] ?? null,
+                'message' => $json['message'] ?? null,
+            ];
+        }
+    }
+
+    return [
+        'success' => false,
+        'text' => '',
+        'error' => 'خروجی نامعتبر از ماژول پردازش صوت: ' . mb_substr(strip_tags($output), 0, 150)
+    ];
+}
+
+/**
+ * استخراج متن از اسناد مصاحبه و نیازمندی‌ها (.docx, .pdf, .txt, .md)
+ *
+ * @param string $filePath مسیر فایل روی سرور
+ * @param string $originalExt پسوند فایل
+ * @return array{success:bool, text:string, format?:string, length?:int, error?:string}
+ */
+function hermes_extract_document_text(string $filePath, string $originalExt = ''): array
+{
+    if (!file_exists($filePath)) {
+        return ['success' => false, 'text' => '', 'error' => 'فایل سند یافت نشد.'];
+    }
+
+    $ext = strtolower($originalExt ?: pathinfo($filePath, PATHINFO_EXTENSION));
+
+    // برای فایل‌های متنی ساده .txt و .md ابتدا مستقیماً در PHP با هندلینگ کدینگ می‌خوانیم
+    if (in_array($ext, ['txt', 'md', 'text'], true)) {
+        $content = file_get_contents($filePath);
+        if ($content !== false) {
+            // حذف BOM در صورت وجود
+            $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+            if (!mb_check_encoding($content, 'UTF-8')) {
+                $content = mb_convert_encoding($content, 'UTF-8', ['Windows-1256', 'CP1256', 'ISO-8859-1', 'ASCII']);
+            }
+            $clean = trim($content);
+            if ($clean !== '') {
+                return [
+                    'success' => true,
+                    'text' => $clean,
+                    'format' => $ext,
+                    'length' => mb_strlen($clean),
+                ];
+            }
+        }
+    }
+
+    // برای فایل‌های docx و pdf از ماژول پایتون استفاده می‌کنیم
+    $pyScript = APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'extract_document_text.py';
+    if (file_exists($pyScript)) {
+        $python = 'python';
+        if (file_exists('C:\\Python314\\python.exe')) {
+            $python = 'C:\\Python314\\python.exe';
+        } elseif (file_exists('C:\\Program Files\\Python312\\python.exe')) {
+            $python = 'C:\\Program Files\\Python312\\python.exe';
+        }
+
+        $cmd = 'set PYTHONIOENCODING=utf-8 && ' . escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($filePath) . ' 2>&1';
+        $output = shell_exec($cmd);
+
+        if ($output && preg_match('/\{[\s\S]*\}/u', $output, $m)) {
+            $json = json_decode($m[0], true);
+            if (is_array($json)) {
+                return [
+                    'success' => (bool)($json['success'] ?? false),
+                    'text' => trim((string)($json['text'] ?? '')),
+                    'format' => $json['format'] ?? $ext,
+                    'length' => (int)($json['length'] ?? 0),
+                    'error' => $json['error'] ?? null,
+                ];
+            }
+        }
+    }
+
+    // راهکار پشتیبان در PHP برای فایلهای Word (.docx) در صورت در دسترس نبودن پایتون
+    if ($ext === 'docx' && class_exists('ZipArchive')) {
+        $zip = new ZipArchive();
+        if ($zip->open($filePath) === true) {
+            $xml = $zip->getFromName('word/document.xml');
+            $zip->close();
+            if ($xml) {
+                $xml = preg_replace('/<\/w:p>/u', "\n\n", $xml);
+                $xml = preg_replace('/<w:tab[^>]*\/>/u', "\t", $xml);
+                $text = strip_tags($xml);
+                $text = html_entity_decode(trim($text), ENT_QUOTES | ENT_XML1, 'UTF-8');
+                if ($text !== '') {
+                    return [
+                        'success' => true,
+                        'text' => $text,
+                        'format' => 'docx',
+                        'length' => mb_strlen($text),
+                    ];
+                }
+            }
+        }
+    }
+
+    return [
+        'success' => false,
+        'text' => '',
+        'error' => 'امکان استخراج متن از این سند وجود نداشت. لطفاً از صحت فایل یا فرمت آن اطمینان حاصل فرمایید.'
+    ];
+}
+
+/**
+ * طراحی و ساختاردهی فرآیند جدید توسط هرمس بر پایه متن مصاحبه و کشف فرآیند
+ *
+ * @param mysqli $db
+ * @param string $interviewText متن پیاده‌شده مصاحبه یا یادداشت‌های جلسه
+ * @param array $hints راهنماها و مقادیر پیشنهادی اختیاری (category_id, company_id, etc.)
+ * @return array{success:bool, design:?array, error:?string}
+ */
+function hermes_design_process_from_interview(mysqli $db, string $interviewText, array $hints = []): array
+{
+    $interviewText = trim($interviewText);
+    if (mb_strlen($interviewText) < 15) {
+        return ['success' => false, 'design' => null, 'error' => 'متن مصاحبه یا شرح فرآیند بسیار کوتاه است؛ لطفاً جزییات بیشتری از گردش‌کار وارد کنید.'];
+    }
+
+    // ۱. دریافت دسته‌بندی‌های فعال
+    $categories = [];
+    $res = $db->query("SELECT ID, Title, FolderName FROM ProcessCategories WHERE Active = 1 ORDER BY SortOrder, Title");
+    while ($r = $res->fetch_assoc()) {
+        $categories[] = "#{$r['ID']} - {$r['Title']}";
+    }
+    $categoriesList = implode(' | ', $categories);
+
+    // ۲. دریافت شرکت‌ها
+    $companies = [];
+    $res = $db->query("SELECT ID, Name FROM Companies WHERE Active = 1 ORDER BY Name");
+    while ($r = $res->fetch_assoc()) {
+        $companies[] = "#{$r['ID']} - {$r['Name']}";
+    }
+    $companiesList = !empty($companies) ? implode(' | ', $companies) : 'شرکت اصلی';
+
+    // ۳. دریافت سمت‌های چارت سازمانی
+    $positions = [];
+    $res = $db->query("SELECT op.ID, op.Title, op.Department FROM OrgPositions op WHERE op.Active = 1 ORDER BY op.SortOrder, op.Title LIMIT 30");
+    while ($r = $res->fetch_assoc()) {
+        $positions[] = "#{$r['ID']} - {$r['Title']}" . (!empty($r['Department']) ? " [{$r['Department']}]" : '');
+    }
+    $positionsList = !empty($positions) ? implode(' | ', $positions) : 'مدیر واحد';
+
+    // ۴. ساخت پرامپت اختصاصی هرمس برای کشف و مهندسی فرآیند
+    $systemPrompt = "شما «هرمس»، مشاور ارشد مهندسی فرآیندهای کسب‌وکار (BPM) و معمار سیستم‌های سازمانی هستید.\n"
+        . "وظیفه شما: دریافت یادداشت‌ها، متن مصاحبه با پرسنل، یا شرح شفاهی گفتگوها پیرامون یک گردش‌کار سازمانی و تبدیل آن به یک فرآیند استاندارد، دقیق، تفکیک‌شده و منطبق با اصول مدیریت فرآیند (BPMN 2.0).\n"
+        . "شما باید تمامی اجزای لازم را استخراج کنید: نام رسمی فرآیند، دسته‌بندی مناسب، نقش‌ها و متولیان، پیش‌نیازها، شاخص‌ها و مهلت‌های زمانی (SLA)، و گام‌های اجرایی شفاف.\n"
+        . "قوانین خروجی: خروجی شما باید منحصراً یک ساختار JSON معتبر و بدون هیچ متن یا توضیحی قبل یا بعد از آن باشد.";
+
+    $userPrompt = "متن مصاحبه و شرح نیازمندی‌های استخراج‌شده از جلسه با ذی‌نفعان:\n"
+        . "«««\n{$interviewText}\n»»»\n\n"
+        . "اطلاعات زیرساخت سازمانی موجود در سیستم:\n"
+        . "- دسته‌های فرآیندی مجاز: {$categoriesList}\n"
+        . "- شرکت‌ها: {$companiesList}\n"
+        . "- نمونه سمت‌های چارت سازمانی: {$positionsList}\n\n"
+        . "لطفاً فرآیند را تحلیل کرده و در قالب ساختار JSON زیر به زبان فارسی برگردانید:\n"
+        . "{\n"
+        . '  "name": "نام رسمی و استاندارد فرآیند (مثلاً: فرآیند درخواست و تخصیص تجهیزات اداری)",' . "\n"
+        . '  "suggested_category_id": شناسه عددی بهترین دسته‌بندی مرتبط از فهرست بالا,' . "\n"
+        . '  "owner_position_id": شناسه عددی بهترین سمت متولی از فهرست سمت‌ها یا 0,' . "\n"
+        . '  "owner_role_title": "عنوان نقش یا سمت اصلی متولی فرآیند (مثلاً: مدیر اداری و پشتیبانی)",' . "\n"
+        . '  "audience_type": "all_company | department | specific_positions",' . "\n"
+        . '  "audience_dept": "نام واحد یا دپارتمان در صورت انتخاب department",' . "\n"
+        . '  "version": "1.0",' . "\n"
+        . '  "purpose": "شرح دقیق هدف و چرایی وجودی فرآیند در سازمان",' . "\n"
+        . '  "scope": "دامنه کاربرد، شمول پرسنل و پیش‌نیازهای ورود به فرآیند",' . "\n"
+        . '  "kpis_and_slas": "شاخص‌های کلیدی عملکرد و موافقت‌نامه‌های سطح خدمات (مهلت‌های زمانی پاسخگویی و اجرای مراحل)",' . "\n"
+        . '  "impacted_roles": [' . "\n"
+        . '    {"role": "عنوان نقش سازمانی", "involvement": "نحوه نقش‌آفرینی، اقدام یا نظارت"}' . "\n"
+        . '  ],' . "\n"
+        . '  "steps": [' . "\n"
+        . '    {"step": 1, "role": "سمت یا نقش مسئول اقدام", "action": "شرح دقیق و شفاف اقدام اجرایی", "notes": "الزامات، فرم‌های مورد نیاز و مهلت زمانی"}' . "\n"
+        . '  ],' . "\n"
+        . '  "description": "خلاصه شناسنامه فرآیند در ۳ الی ۵ سطر جهت نمایش در پرونده",' . "\n"
+        . '  "optimization_notes": "تحلیل هرمس درباره رفع گلوگاه‌ها، بهینه‌سازی مسیر و ارزش‌افزوده استقرار این فرآیند"' . "\n"
+        . "}";
+
+    $messages = [
+        ['role' => 'system', 'content' => $systemPrompt],
+        ['role' => 'user', 'content' => $userPrompt],
+    ];
+
+    $raw = hermes_chat($messages, 0.2, 2200, 90);
+    if (!$raw) {
+        return ['success' => false, 'design' => null, 'error' => 'ارتباط با دستیار هرمس برقرار نشد یا با مهلت زمانی مواجه شد.'];
+    }
+
+    $parsed = null;
+    if (preg_match('/\{[\s\S]*\}/u', $raw, $m)) {
+        $parsed = json_decode($m[0], true);
+    }
+
+    if (!is_array($parsed) || empty($parsed['name'])) {
+        return ['success' => false, 'design' => null, 'error' => 'پاسخ دریافتی از هرمس ساختار معتبری نداشت. لطفاً دوباره تلاش کنید.'];
+    }
+
+    // نرمال‌سازی مقادیر پیش‌فرض
+    if (empty($parsed['suggested_category_id']) && !empty($hints['category_id'])) {
+        $parsed['suggested_category_id'] = (int)$hints['category_id'];
+    }
+    if (empty($parsed['version'])) {
+        $parsed['version'] = '1.0';
+    }
+    if (!isset($parsed['steps']) || !is_array($parsed['steps'])) {
+        $parsed['steps'] = [];
+    }
+
+    return ['success' => true, 'design' => $parsed, 'error' => null];
+}
+
+/**
+ * اصلاح و بازنگری تعاملی پیش‌نویس فرآیند توسط هرمس بر پایه بازخورد انسان (Human-in-the-Loop)
+ *
+ * @param mysqli $db
+ * @param array $currentDesign ساختار فعلی فرآیند
+ * @param string $userFeedback دستور اصلاحیه یا راهنمایی کاربر
+ * @return array{success:bool, design:?array, error:?string}
+ */
+function hermes_refine_process_design(mysqli $db, array $currentDesign, string $userFeedback): array
+{
+    $userFeedback = trim($userFeedback);
+    if ($userFeedback === '') {
+        return ['success' => true, 'design' => $currentDesign, 'error' => null];
+    }
+
+    $systemPrompt = "شما «هرمس»، مشاور ارشد مهندسی فرآیندها هستید.\n"
+        . "یک پیش‌نویس اولیه برای فرآیند سازمانی تدوین شده است و کاربر (مهندس فرآیند) نکاتی را جهت اصلاح، افزودن گام، تغییر مسئولیت‌ها یا مهلت‌ها مطرح کرده است.\n"
+        . "وظیفه شما: اعمال دقیق اصلاحات مورد نظر کاربر بر روی ساختار فرآیند و به‌روزرسانی گام‌ها، نقش‌ها و شناسنامه آن است.\n"
+        . "خروجی شما باید منحصراً ساختار JSON کامل به‌روزشده بر اساس مدل قبلی باشد و هیچ متن اضافی نیاورید.";
+
+    $currentJson = json_encode($currentDesign, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $userPrompt = "ساختار فعلی فرآیند:\n```json\n{$currentJson}\n```\n\n"
+        . "دستور اصلاحی و بازخورد کاربر:\n«{$userFeedback}»\n\n"
+        . "لطفاً ساختار اصلاح‌شده و نهایی JSON را به زبان فارسی برگردانید:";
+
+    $messages = [
+        ['role' => 'system', 'content' => $systemPrompt],
+        ['role' => 'user', 'content' => $userPrompt],
+    ];
+
+    $raw = hermes_chat($messages, 0.2, 2200, 90);
+    if (!$raw) {
+        return ['success' => false, 'design' => $currentDesign, 'error' => 'پاسخی از هرمس دریافت نشد.'];
+    }
+
+    $parsed = null;
+    if (preg_match('/\{[\s\S]*\}/u', $raw, $m)) {
+        $parsed = json_decode($m[0], true);
+    }
+
+    if (!is_array($parsed) || empty($parsed['name'])) {
+        return ['success' => false, 'design' => $currentDesign, 'error' => 'پاسخ اصلاحی هرمس معتبر نبود.'];
+    }
+
+    return ['success' => true, 'design' => $parsed, 'error' => null];
+}
+
+/**
+ * ذخیره و انتشار نهایی فرآیند تدوین‌شده توسط هرمس در دیتابیس، ساخت پوشه، تولید PDF و ارسال اعلان
+ *
+ * @param mysqli $db
+ * @param array $designData اطلاعات نهایی فرآیند
+ * @param int $teamId شناسه تیم مسئول ثبت
+ * @param int $companyId شناسه شرکت
+ * @return array{success:bool, process_id?:int, file_path?:string, error?:string}
+ */
+function hermes_create_process_from_design(mysqli $db, array $designData, int $teamId, int $companyId = 0): array
+{
+    $name = trim((string)($designData['name'] ?? ''));
+    $cleanName = fm_clean_name($name);
+    if ($cleanName === null || mb_strlen($cleanName) < 3) {
+        return ['success' => false, 'error' => 'نام فرآیند نامعتبر است (حداقل ۳ نویسه مجاز).'];
+    }
+
+    $catId = (int)($designData['suggested_category_id'] ?? $designData['category_id'] ?? 0);
+    $st = $db->prepare("SELECT ID, Title, FolderName FROM ProcessCategories WHERE (ID = ? OR Active = 1) ORDER BY (ID = ?) DESC LIMIT 1");
+    $st->bind_param('ii', $catId, $catId);
+    $st->execute();
+    $cat = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$cat) {
+        return ['success' => false, 'error' => 'دسته‌بندی فعالی در سیستم یافت نشد.'];
+    }
+    $catId = (int)$cat['ID'];
+    $catFolder = $cat['FolderName'];
+    $catTitle = $cat['Title'];
+
+    // بررسی تکراری نبودن نام
+    $st = $db->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
+    $st->bind_param('s', $cleanName);
+    $st->execute();
+    $existing = $st->get_result()->fetch_assoc();
+    $st->close();
+    if ($existing) {
+        $cleanName .= ' - ویرایش ' . date('md');
+    }
+
+    // مسیر فیزیکی فرآیند
+    $rel = $catFolder . '/' . $cleanName . '/';
+    $abs = fm_abs($rel);
+    if (!is_dir($abs)) {
+        @mkdir($abs, 0775, true);
+        @file_put_contents($abs . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+    }
+
+    $ownerPosId = !empty($designData['owner_position_id']) ? (int)$designData['owner_position_id'] : null;
+    $ownerId = !empty($designData['owner_id']) ? (int)$designData['owner_id'] : null;
+    $audType = (string)($designData['audience_type'] ?? 'all_company');
+    if (!in_array($audType, ['all_company', 'specific_positions', 'specific_personnel', 'department'], true)) {
+        $audType = 'all_company';
+    }
+    $audDept = ($audType === 'department' && !empty($designData['audience_dept'])) ? trim((string)$designData['audience_dept']) : null;
+    $desc = trim((string)($designData['description'] ?? ''));
+    $version = trim((string)($designData['version'] ?? '1.0')) ?: '1.0';
+    $status = 'active';
+
+    // دریافت نام شرکت و تیم
+    $companyName = defined('APP_NAME') ? APP_NAME : 'سازمان';
+    if ($companyId > 0) {
+        $stC = $db->prepare("SELECT Name FROM Companies WHERE ID = ?");
+        $stC->bind_param('i', $companyId);
+        $stC->execute();
+        $cRow = $stC->get_result()->fetch_assoc();
+        $stC->close();
+        if ($cRow) $companyName = $cRow['Name'];
+    }
+
+    $respTeamName = 'تیم مهندسی فرآیند';
+    if ($teamId > 0) {
+        $stT = $db->prepare("SELECT TeamName FROM ProcessTeams WHERE ID = ?");
+        $stT->bind_param('i', $teamId);
+        $stT->execute();
+        $tRow = $stT->get_result()->fetch_assoc();
+        $stT->close();
+        if ($tRow) $respTeamName = $tRow['TeamName'];
+    }
+
+    $ownerPosTitle = (string)($designData['owner_role_title'] ?? 'متولی فرآیند');
+    if ($ownerPosId) {
+        $stP = $db->prepare("SELECT Title FROM OrgPositions WHERE ID = ?");
+        $stP->bind_param('i', $ownerPosId);
+        $stP->execute();
+        $pRow = $stP->get_result()->fetch_assoc();
+        $stP->close();
+        if ($pRow) $ownerPosTitle = $pRow['Title'];
+    }
+
+    // ۱. ثبت در جدول Processes
+    $compParam = $companyId > 0 ? $companyId : null;
+    $st = $db->prepare(
+        "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+    );
+    $st->bind_param('siisiiisssss', $cleanName, $catId, $compParam, $rel, $ownerId, $ownerPosId, $teamId, $desc, $audType, $audDept, $status, $version);
+    $st->execute();
+    $newProcId = (int)$db->insert_id;
+    $st->close();
+
+    // ۲. تولید و ذخیره فایل سند رسمی PDF
+    $pdfFileName = 'دستورالعمل-فرآیند-v' . $version . '.pdf';
+    $pdfFullPath = $abs . DIRECTORY_SEPARATOR . $pdfFileName;
+
+    $processMeta = [
+        'ID' => $newProcId,
+        'Name' => $cleanName,
+        'CatTitle' => $catTitle,
+        'CompanyName' => $companyName,
+        'RespTeam' => $respTeamName,
+        'OwnerPositionTitle' => $ownerPosTitle,
+        'AudienceLabel' => match ($audType) {
+            'department' => 'دپارتمان ' . ($audDept ?: 'مربوطه'),
+            'specific_positions' => 'سمت‌های تخصصی درگیر',
+            'specific_personnel' => 'پرسنل مشخص مرتبط',
+            default => 'کلیه پرسنل سازمان'
+        },
+        'Version' => $version,
+    ];
+
+    try {
+        generate_new_process_procedure_pdf($processMeta, $designData, $pdfFullPath);
+    } catch (Throwable $e) {
+        @file_put_contents($pdfFullPath . '.err.txt', $e->getMessage());
+    }
+
+    // ۳. ذخیره فایل متنی دستورالعمل (TXT)
+    $txtContent = "====================================================\n"
+        . "شناسنامه و دستورالعمل اجرایی فرآیند: {$cleanName}\n"
+        . "نسخه: {$version} | تاریخ تدوین: " . date('Y/m/d') . "\n"
+        . "دسته‌بندی: {$catTitle} | تیم مسئول: {$respTeamName}\n"
+        . "متولی سازمانی: {$ownerPosTitle}\n"
+        . "دامنه مخاطبان: {$processMeta['AudienceLabel']}\n"
+        . "====================================================\n\n"
+        . "۱. هدف و مأموریت فرآیند:\n" . ($designData['purpose'] ?? '') . "\n\n"
+        . "۲. دامنه شمول و پیش‌نیازها:\n" . ($designData['scope'] ?? '') . "\n\n"
+        . "۳. شاخص‌های کلیدی عملکرد و موافقت‌نامه سطح خدمت (SLA):\n" . ($designData['kpis_and_slas'] ?? '') . "\n\n"
+        . "۴. گام‌های اجرایی و گردش‌کار استاندارد:\n";
+
+    if (!empty($designData['steps']) && is_array($designData['steps'])) {
+        foreach ($designData['steps'] as $s) {
+            $num = $s['step'] ?? '';
+            $role = $s['role'] ?? 'مسئول';
+            $act = $s['action'] ?? '';
+            $notes = $s['notes'] ?? '';
+            $txtContent .= "  گام {$num} [{$role}]: {$act}\n";
+            if ($notes) {
+                $txtContent .= "         نکات و الزامات: {$notes}\n";
+            }
+        }
+    }
+
+    $txtContent .= "\n۵. ملاحظات مهندسی و ارزش‌افزوده هرمس:\n" . ($designData['optimization_notes'] ?? '') . "\n";
+    @file_put_contents($abs . DIRECTORY_SEPARATOR . 'دستورالعمل-فرآیند.txt', $txtContent);
+
+    // ۴. ثبت سابقه تغییرات در جدول Changes
+    $changeDesc = "طراحی، تدوین و انتشار اولیه فرآیند توسط دستیار مهندسی فرآیند هرمس (Hermes AI) بر پایه تحلیل مصاحبه سازمانی.";
+    $stCh = $db->prepare(
+        "INSERT INTO Changes (ProcessID, ChangeType, Description, OldVersion, NewVersion, AppliedByType, AppliedByID, Status, EffectiveDate)
+         VALUES (?, 'addition', ?, NULL, ?, 'team', ?, 'applied', CURDATE())"
+    );
+    $stCh->bind_param('issi', $newProcId, $changeDesc, $version, $teamId);
+    $stCh->execute();
+    $stCh->close();
+
+    // ۵. ارسال اعلان درون‌برنامه‌ای عمومی (سراسری) به همه کاربران و تیم‌ها
+    $notifTitle = "فرآیند جدید «{$cleanName}» تدوین و منتشر شد";
+    $notifBody = "فرآیند جدید «{$cleanName}» (نسخه {$version}) بر اساس مصاحبه و مهندسی استاندارد هرمس تصویب و مستندات آن در دسترس قرار گرفت.";
+    $notifLink = BASE_URL . '/processes/' . rawurlencode($catFolder) . '/' . rawurlencode($cleanName) . '/' . rawurlencode($pdfFileName);
+
+    $stN = $db->prepare(
+        "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, Priority, Type)
+         VALUES (?, ?, ?, 'hermes', 0, ?, 'normal', 'hermes')"
+    );
+    $stN->bind_param('sssi', $notifTitle, $notifBody, $notifLink, $newProcId);
+    $stN->execute();
+    $stN->close();
+
+    // ۶. ارسال اعلان اختصاصی درون‌برنامه‌ای و مخابره پیام بله به تک‌تک متولیان و مخاطبان اثرپذیر
+    require_once __DIR__ . '/bale.php';
+    if (function_exists('bale_get_process_recipients')) {
+        $recipientsInfo = bale_get_process_recipients($db, $newProcId);
+        if (!empty($recipientsInfo['all_recipients']) && is_array($recipientsInfo['all_recipients'])) {
+            $stPersNotif = $db->prepare(
+                "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type)
+                 VALUES (?, ?, ?, 'hermes', 0, ?, ?, 'high', 'hermes')"
+            );
+            foreach ($recipientsInfo['all_recipients'] as $rec) {
+                $pId = (int)($rec['personnel_id'] ?? 0);
+                if ($pId > 0) {
+                    $roleLabel = $rec['role_label'] ?? 'مخاطب اثرپذیر';
+                    $persTitle = "فرآیند جدید «{$cleanName}» (ارسال برای شما به عنوان {$roleLabel})";
+                    $persBody = "فرآیند جدید «{$cleanName}» تصویب و منتشر شد. با توجه به نقش یا وابستگی سازمانی شما ({$roleLabel})، مستندات رسمی پیوست را مطالعه فرمایید.";
+                    $stPersNotif->bind_param('sssii', $persTitle, $persBody, $notifLink, $newProcId, $pId);
+                    $stPersNotif->execute();
+                }
+            }
+            $stPersNotif->close();
+        }
+    }
+
+    if (function_exists('bale_notify_process_change')) {
+        $changeSubject = "تدوین و انتشار فرآیند جدید «{$cleanName}» (نسخه {$version})";
+        $changeDetails = "فرآیند جدید «{$cleanName}» بر اساس مصاحبه سازمانی و مهندسی استاندارد هرمس تدوین و تصویب گردید. شناسنامه، متولی، شاخص‌های سطح خدمت (SLA) و گام‌های اجرایی در سند رسمی پیوست به این پیام درج شده است.";
+        try {
+            bale_notify_process_change(
+                $db,
+                $newProcId,
+                $changeSubject,
+                $changeDetails,
+                $notifLink,
+                $teamId,
+                null,
+                $pdfFullPath
+            );
+        } catch (Throwable $e) {
+            error_log("Bale process notification error: " . $e->getMessage());
+        }
+    }
+
+    return [
+        'success' => true,
+        'process_id' => $newProcId,
+        'file_path' => $rel,
+        'pdf_file' => $pdfFileName,
+        'name' => $cleanName,
+    ];
+}
+
 

@@ -51,7 +51,7 @@ while ($r = $res->fetch_assoc()) $latest[] = $r;
     <?php else: ?>
         <div class="table-wrap">
         <table class="data">
-            <thead><tr><th>فرآیند</th><th>دسته</th><th>نسخه</th><th>آخرین به‌روزرسانی</th><th></th></tr></thead>
+            <thead><tr><th>فرآیند</th><th>دسته</th><th>نسخه</th><th>آخرین به‌روزرسانی</th><th style="width: 90px; text-align: center;">عملیات</th></tr></thead>
             <tbody>
             <?php foreach ($latest as $p): ?>
                 <tr>
@@ -59,7 +59,7 @@ while ($r = $res->fetch_assoc()) $latest[] = $r;
                     <td><?= e($p['CatTitle']) ?></td>
                     <td><span class="num-ltr"><?= farsi_num($p['Version']) ?></span></td>
                     <td><?= e(fmt_date($p['UpdatedAt'])) ?></td>
-                    <td><a class="btn btn-sm" href="processes.php?id=<?= (int)$p['ID'] ?>">مشاهده</a></td>
+                    <td style="text-align: center;"><a class="btn btn-sm" href="processes.php?id=<?= (int)$p['ID'] ?>">مشاهده</a></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

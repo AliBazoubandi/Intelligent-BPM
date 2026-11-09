@@ -58,7 +58,6 @@ html[data-theme="light"],
 }
 
 /* ---------------- حالت تیره (Dark Mode) ---------------- */
-:root:has(> head > meta[name="color-scheme"][content="dark"]),
 html[data-theme="dark"],
 [data-theme="dark"] {
     color-scheme: dark !important;
@@ -88,7 +87,6 @@ html[data-theme="dark"],
     --table-row-hover: rgba(59, 130, 246, 0.14);
 }
 
-:root:has(> head > meta[name="color-scheme"][content="dark"]) .team-theme,
 html[data-theme="dark"] .team-theme,
 [data-theme="dark"] .team-theme,
 .team-theme[data-theme="dark"] {
@@ -100,7 +98,7 @@ html[data-theme="dark"] .team-theme,
 }
 
 @media (prefers-color-scheme: dark) {
-    :root:not(:has(> head > meta[name="color-scheme"][content="light"])):not([data-theme="light"]) {
+    :root:not([data-theme="light"]) {
         color-scheme: dark;
         --bg: #0e1322;
         --card: #151d32;
@@ -123,7 +121,7 @@ html[data-theme="dark"] .team-theme,
         --header-grad: linear-gradient(135deg, #0f2452 0%, #153476 55%, #1b459c 100%);
         --table-row-hover: rgba(59, 130, 246, 0.14);
     }
-    :root:not(:has(> head > meta[name="color-scheme"][content="light"])):not([data-theme="light"]) .team-theme,
+    :root:not([data-theme="light"]) .team-theme,
     .team-theme:not([data-theme="light"]) {
         --brand: #10b981;
         --brand-dark: #34d399;
@@ -281,6 +279,11 @@ a:hover { text-decoration: underline; }
     margin-inline-start: 6px;
     user-select: none;
     flex-shrink: 0;
+}
+@media (max-width: 768px) {
+    .search-kbd {
+        display: none !important;
+    }
 }
 
 /* بج وضعیت هوش مصنوعی هرمس (Worker Status Pill) */
@@ -724,6 +727,11 @@ a:hover { text-decoration: underline; }
     gap: 14px;
     margin-bottom: 18px;
 }
+@media (max-width: 960px) and (min-width: 600px) {
+    .stat-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 .stat {
     background: var(--card);
     border: 1px solid var(--line);
@@ -853,11 +861,15 @@ a:hover { text-decoration: underline; }
 .badge-removal { background: var(--danger-soft); color: var(--danger); }
 
 /* جدول */
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
 table.data {
     width: 100%;
     border-collapse: collapse;
     font-size: 13.5px;
+    min-width: 620px;
 }
 table.data th {
     text-align: right;
@@ -2419,10 +2431,10 @@ a.fm-name { color: var(--brand-dark); }
 }
 
 [data-theme="dark"] .chip-off {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.25);
     color: #94a3b8;
-    opacity: 0.85;
+    opacity: 1;
 }
 
 [data-theme="dark"] .app-foot {
@@ -2717,6 +2729,8 @@ a.fm-name { color: var(--brand-dark); }
         overflow-y: visible;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
+        mask-image: linear-gradient(to left, black calc(100% - 28px), transparent 100%);
+        -webkit-mask-image: linear-gradient(to left, black calc(100% - 28px), transparent 100%);
     }
     .header-nav::-webkit-scrollbar { display: none; }
     .submenu {
@@ -2731,3 +2745,31 @@ a.fm-name { color: var(--brand-dark); }
         z-index: 9999;
     }
 }
+
+/* ==============================================================
+ * استایل‌های تدوین هوشمند فرآیند با هرمس (AI Process Designer)
+ * ============================================================== */
+@keyframes micPulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.35); opacity: 0.6; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.mic-recording #micDot {
+    animation: micPulse 1.2s infinite ease-in-out;
+}
+
+.step-row input, .step-row textarea {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--input-ink);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.step-row input:focus, .step-row textarea:focus {
+    border-color: var(--brand);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+

@@ -281,3 +281,278 @@ function generate_process_procedure_pdf(array $process, array $revisionData, str
     return $mpdf->Output('', Destination::STRING_RETURN);
 }
 
+/**
+ * تولید سند رسمی و شناسنامه فرآیند جدید تدوین‌شده توسط هرمس
+ *
+ * @param array $processData مشخصات فرآیند (Name, CatTitle, CompanyName, RespTeam, OwnerPositionTitle, OwnerName, AudienceLabel, Version)
+ * @param array $designData داده‌های ساختاریافته طراحی هرمس (purpose, scope, kpis_and_slas, impacted_roles, steps, optimization_notes, etc.)
+ * @param string $outputPath مسیر ذخیره فایل روی دیسک (در صورت خالی بودن رشته باینری برمی‌گردد)
+ * @return string مسیر فایل ذخیره‌شده یا محتوای باینری PDF
+ * @throws Exception
+ */
+function generate_new_process_procedure_pdf(array $processData, array $designData, string $outputPath = ''): string
+{
+    $mpdf = new Mpdf([
+        'mode' => 'utf-8',
+        'format' => 'A4',
+        'default_font' => 'dejavusans',
+        'autoScriptToLang' => true,
+        'autoLangToFont' => true,
+        'margin_left' => 15,
+        'margin_right' => 15,
+        'margin_top' => 26,
+        'margin_bottom' => 22,
+        'margin_header' => 8,
+        'margin_footer' => 8,
+    ]);
+
+    $procName = htmlspecialchars($processData['Name'] ?? 'فرآیند سازمانی جدید', ENT_QUOTES, 'UTF-8');
+    $catTitle = htmlspecialchars($processData['CatTitle'] ?? 'دسته‌بندی عمومی', ENT_QUOTES, 'UTF-8');
+    $companyName = htmlspecialchars($processData['CompanyName'] ?? (defined('APP_NAME') ? APP_NAME : 'سازمان'), ENT_QUOTES, 'UTF-8');
+    $respTeam = htmlspecialchars($processData['RespTeam'] ?? 'تیم فرآیند', ENT_QUOTES, 'UTF-8');
+    $ownerTitle = htmlspecialchars($processData['OwnerPositionTitle'] ?? ($designData['owner_role_title'] ?? 'متولی تعیین نشده'), ENT_QUOTES, 'UTF-8');
+    $audienceLabel = htmlspecialchars($processData['AudienceLabel'] ?? 'عموم پرسنل سازمان', ENT_QUOTES, 'UTF-8');
+    $version = htmlspecialchars((string)($designData['version'] ?? '1.0'), ENT_QUOTES, 'UTF-8');
+    $docCode = 'PRC-N' . date('ymd');
+    $todayJalali = function_exists('fmt_date_short') ? fmt_date_short(date('Y-m-d H:i:s')) : date('Y/m/d');
+
+    // سربرگ رسمی سند
+    $headerHtml = '
+    <div style="direction: rtl; text-align: right; font-family: dejavusans; border-bottom: 2px solid #0f766e; padding-bottom: 6px; font-size: 10px; color: #334155;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="width: 33%; text-align: right;">
+                    <span style="font-weight: bold; color: #0f766e; font-size: 12px;">' . $companyName . '</span><br>
+                    <span>سامانه مدیریت و بهینه‌سازی فرآیندها (رابین‌فلو)</span>
+                </td>
+                <td style="width: 34%; text-align: center;">
+                    <span style="font-size: 14px; font-weight: bold; color: #0f172a;">شناسنامه و دستورالعمل اجرایی فرآیند</span><br>
+                    <span style="color: #64748b; font-size: 10px;">طراحی و تدوین استاندارد توسط هرمس (AI)</span>
+                </td>
+                <td style="width: 33%; text-align: left; direction: ltr; font-size: 10px; color: #475569;">
+                    <b>کد سند:</b> ' . $docCode . '<br>
+                    <b>نسخه:</b> ' . $version . ' | <b>تاریخ:</b> ' . $todayJalali . '
+                </td>
+            </tr>
+        </table>
+    </div>';
+
+    // پابرگ رسمی سند
+    $footerHtml = '
+    <div style="direction: rtl; text-align: center; font-family: dejavusans; border-top: 1px solid #cbd5e1; padding-top: 6px; font-size: 9px; color: #64748b;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="width: 65%; text-align: right;">
+                    <span>سند مصوب فرآیند سازمانی — تحلیل مصاحبه و معماری گردش‌کار توسط دستیار هوشمند هرمس (Hermes AI)</span>
+                </td>
+                <td style="width: 35%; text-align: left; direction: ltr;">
+                    صفحه {PAGENO} از {nbpg}
+                </td>
+            </tr>
+        </table>
+    </div>';
+
+    $mpdf->SetHTMLHeader($headerHtml);
+    $mpdf->SetHTMLFooter($footerHtml);
+
+    // بخش‌های سند
+    $purpose = trim((string)($designData['purpose'] ?? 'هدف از این دستورالعمل، تعیین استانداردها، گام‌ها و ضوابط اجرایی فرآیند «' . $procName . '» در کلیه واحدهای سازمان می‌باشد.'));
+    $scope = trim((string)($designData['scope'] ?? 'این فرآیند کلیه پرسنل، سرپرستان و واحدهای مرتبط با موضوع را در سطح شرکت شامل می‌شود.'));
+    $kpis = trim((string)($designData['kpis_and_slas'] ?? 'رعایت موافقت‌نامه‌های سطح خدمات (SLA)، پاسخگویی شفاف و ثبت مستندات الکترونیکی در مواعد مقرر.'));
+    $optNotes = trim((string)($designData['optimization_notes'] ?? 'طراحی بر اساس تحلیل داده‌های مصاحبه فرآیندی با هدف حذف افزونگی، کاهش زمان چرخه کار و استقرار مسئولیت‌پذیری شفاف.'));
+
+    // نقش‌های درگیر
+    $impactedRoles = $designData['impacted_roles'] ?? [];
+    $rolesHtml = '';
+    if (is_array($impactedRoles) && !empty($impactedRoles)) {
+        $rolesHtml .= '
+        <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; margin-top: 6px;">
+            <thead>
+                <tr style="background: #f1f5f9; color: #334155;">
+                    <th style="border: 1px solid #cbd5e1; padding: 6px 8px; width: 35%; text-align: right;">نقش / سمت سازمانی</th>
+                    <th style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">مسئولیت و نحوه درگیری در فرآیند</th>
+                </tr>
+            </thead>
+            <tbody>';
+        foreach ($impactedRoles as $ir) {
+            $rTitle = htmlspecialchars(is_array($ir) ? ($ir['role'] ?? 'نقش سازمانی') : (string)$ir, ENT_QUOTES, 'UTF-8');
+            $rInv = htmlspecialchars(is_array($ir) ? ($ir['involvement'] ?? 'اجرا یا نظارت بر فرآیند') : 'مشارکت در فرآیند', ENT_QUOTES, 'UTF-8');
+            $rolesHtml .= '
+            <tr>
+                <td style="border: 1px solid #cbd5e1; padding: 6px 8px; font-weight: bold; color: #1e3a8a;">' . $rTitle . '</td>
+                <td style="border: 1px solid #cbd5e1; padding: 6px 8px; color: #334155;">' . $rInv . '</td>
+            </tr>';
+        }
+        $rolesHtml .= '</tbody></table>';
+    } else {
+        $rolesHtml = '<p style="margin: 0; color: #475569;">شامل متقاضی فرآیند، سرپرست واحد، تیم مسئول و واحدهای پشتیبان ذی‌ربط.</p>';
+    }
+
+    // جدول گام‌های اجرایی
+    $steps = $designData['steps'] ?? [];
+    if (!is_array($steps) || empty($steps)) {
+        $steps = [
+            [
+                'step' => 1,
+                'role' => 'درخواست‌کننده / مجری',
+                'action' => 'ثبت تقاضا یا آغاز عملیات طبق نیازمندی‌های مصوب در پرتال سازمانی.',
+                'notes' => 'ورود اطلاعات کامل و پیوست مدارک الزامی است.'
+            ],
+            [
+                'step' => 2,
+                'role' => $respTeam,
+                'action' => 'بررسی انطباق، ارزیابی کارشناسی و صدور مجوز ادامه فرآیند.',
+                'notes' => 'حداکثر مهلت بررسی مطابق SLA فرآیند.'
+            ],
+            [
+                'step' => 3,
+                'role' => 'واحد ذی‌ربط / مسئول اجرایی',
+                'action' => 'اجرای اقدام عملیاتی و ثبت نتایج در سوابق الکترونیکی پرونده.',
+                'notes' => 'تأیید نهایی و بایگانی در پرونده فرآیند.'
+            ]
+        ];
+    }
+
+    $stepsHtml = '';
+    foreach ($steps as $idx => $st) {
+        $stNum = htmlspecialchars((string)($st['step'] ?? ($idx + 1)), ENT_QUOTES, 'UTF-8');
+        $stRole = htmlspecialchars((string)($st['role'] ?? 'مجری اقدام'), ENT_QUOTES, 'UTF-8');
+        $stAction = nl2br(htmlspecialchars((string)($st['action'] ?? ''), ENT_QUOTES, 'UTF-8'));
+        $stNotes = nl2br(htmlspecialchars((string)($st['notes'] ?? '—'), ENT_QUOTES, 'UTF-8'));
+        $bg = ($idx % 2 === 1) ? 'background-color: #f8fafc;' : 'background-color: #ffffff;';
+
+        $stepsHtml .= '
+        <tr style="' . $bg . '">
+            <td style="border: 1px solid #cbd5e1; padding: 7px 8px; text-align: center; font-weight: bold; color: #0f766e;">' . $stNum . '</td>
+            <td style="border: 1px solid #cbd5e1; padding: 7px 8px; font-weight: 600; color: #1e3a8a;">' . $stRole . '</td>
+            <td style="border: 1px solid #cbd5e1; padding: 7px 8px; line-height: 1.6;">' . $stAction . '</td>
+            <td style="border: 1px solid #cbd5e1; padding: 7px 8px; color: #475569; font-size: 10px; line-height: 1.5;">' . $stNotes . '</td>
+        </tr>';
+    }
+
+    $bodyHtml = '
+    <div style="direction: rtl; text-align: right; font-family: dejavusans; line-height: 1.7; color: #1e293b; font-size: 11px;">
+
+        <!-- عنوان اصلی سند -->
+        <div style="text-align: center; margin-bottom: 16px;">
+            <h1 style="color: #0f766e; font-size: 18px; margin: 0 0 4px 0;">شناسنامه و دستورالعمل اجرایی: ' . $procName . '</h1>
+            <span style="font-size: 11px; color: #64748b;">حوزه فرآیندی: ' . $catTitle . ' | نگارش: ' . $version . ' | تاریخ تصویب: ' . $todayJalali . '</span>
+        </div>
+
+        <!-- ۱. شناسنامه فرآیند -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #0f766e; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۱. شناسنامه و مشخصات مصوب فرآیند
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+                <tr>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; width: 18%; font-weight: bold; color: #334155;">نام رسمی فرآیند:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px; width: 32%;">' . $procName . '</td>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; width: 18%; font-weight: bold; color: #334155;">کد رهگیری سند:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px; width: 32%;">' . $docCode . '</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; font-weight: bold; color: #334155;">دسته‌بندی:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">' . $catTitle . '</td>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; font-weight: bold; color: #334155;">نسخه سند:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: #0f766e;">' . $version . ' (نسخه اولیه مصوب)</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; font-weight: bold; color: #334155;">تیم مهندسی مسئول:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">' . $respTeam . '</td>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; font-weight: bold; color: #334155;">سمت متولی چارت:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">' . $ownerTitle . '</td>
+                </tr>
+                <tr>
+                    <td style="border: 1px solid #cbd5e1; background: #f8fafc; padding: 6px 10px; font-weight: bold; color: #334155;">دامنه مخاطبان:</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 6px 10px;" colspan="3">' . $audienceLabel . '</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- ۲. مأموریت و اهداف فرآیند -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #1e3a8a; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۲. مأموریت و اهداف استراتژیک فرآیند
+            </div>
+            <div style="border: 1px solid #cbd5e1; border-top: none; padding: 9px 12px; background: #ffffff;">
+                <p style="margin: 0; line-height: 1.8;">' . nl2br(htmlspecialchars($purpose, ENT_QUOTES, 'UTF-8')) . '</p>
+            </div>
+        </div>
+
+        <!-- ۳. دامنه شمول و پیش‌نیازها -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #1e3a8a; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۳. دامنه کاربرد و پیش‌نیازهای اجرایی
+            </div>
+            <div style="border: 1px solid #cbd5e1; border-top: none; padding: 9px 12px; background: #ffffff;">
+                <p style="margin: 0; line-height: 1.8;">' . nl2br(htmlspecialchars($scope, ENT_QUOTES, 'UTF-8')) . '</p>
+            </div>
+        </div>
+
+        <!-- ۴. نقش‌ها و مسئولیت‌های سازمانی -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #1e3a8a; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۴. ماتریس نقش‌ها و مسئولیت‌های سازمانی
+            </div>
+            <div style="border: 1px solid #cbd5e1; border-top: none; padding: 8px 12px; background: #ffffff;">
+                ' . $rolesHtml . '
+            </div>
+        </div>
+
+        <!-- ۵. شاخص‌های کلیدی عملکرد و سطوح خدمات (SLA) -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #0369a1; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۵. شاخص‌های کلیدی عملکرد و توافق‌نامه سطح خدمت (KPI / SLA)
+            </div>
+            <div style="border: 1px solid #cbd5e1; border-top: none; padding: 9px 12px; background: #f0f9ff;">
+                <p style="margin: 0; line-height: 1.8; color: #0c4a6e;">' . nl2br(htmlspecialchars($kpis, ENT_QUOTES, 'UTF-8')) . '</p>
+            </div>
+        </div>
+
+        <!-- ۶. جدول تفصیلی گام‌های اجرایی -->
+        <div style="margin-bottom: 14px;">
+            <div style="background-color: #0f766e; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۶. توالی و روش اجرایی گام‌به‌گام (گردش‌کار استاندارد)
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+                <thead>
+                    <tr style="background: #e2e8f0; color: #0f172a;">
+                        <th style="border: 1px solid #cbd5e1; padding: 7px; width: 6%; text-align: center;">گام</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 7px; width: 23%; text-align: right;">سمت / نقش مسئول</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 7px; width: 45%; text-align: right;">شرح دقیق اقدام</th>
+                        <th style="border: 1px solid #cbd5e1; padding: 7px; width: 26%; text-align: right;">الزامات، مهلت و خروجی</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ' . $stepsHtml . '
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ۷. یادداشت‌های معماری و مهندسی هرمس -->
+        <div style="margin-bottom: 10px;">
+            <div style="background-color: #334155; color: #ffffff; padding: 5px 10px; font-weight: bold; font-size: 11.5px; border-radius: 3px 3px 0 0;">
+                ۷. ملاحظات معماری فرآیند و رفع گلوگاه‌ها (تحلیل هرمس)
+            </div>
+            <div style="border: 1px solid #cbd5e1; border-top: none; padding: 9px 12px; background: #f8fafc;">
+                <p style="margin: 0; line-height: 1.8; color: #475569;">' . nl2br(htmlspecialchars($optNotes, ENT_QUOTES, 'UTF-8')) . '</p>
+            </div>
+        </div>
+
+    </div>';
+
+    $mpdf->WriteHTML($bodyHtml);
+
+    if ($outputPath !== '') {
+        $dir = dirname($outputPath);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        $mpdf->Output($outputPath, Destination::FILE);
+        return $outputPath;
+    }
+
+    return $mpdf->Output('', Destination::STRING_RETURN);
+}
+

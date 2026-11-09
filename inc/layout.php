@@ -11,7 +11,6 @@ require_once __DIR__ . '/icons.php';
 function user_header(array $id, string $active, string $pageTitle): void
 {
     $uid = (int)($id['id'] ?? 0);
-    $badges = user_badges($uid);
     $hermesNotifCount = 0;
     $msgNotifCount = 0;
     try {
@@ -35,9 +34,9 @@ function user_header(array $id, string $active, string $pageTitle): void
         'home' => ['home.php', 'خانه', 'home', null],
         'processes' => ['processes.php', 'پیمایش فرآیندها', 'processes', null],
         'ask' => ['ask.php', 'پرسش از فرآیندها', 'bot', null],
-        'improvements' => ['improvements.php', 'بهبودهای من', 'improvements', $badges['improvements']],
+        'improvements' => ['improvements.php', 'بهبودهای من', 'improvements', null],
         'discussion' => ['discussion.php', 'گفتگو در فرآیندها', 'discussion', null],
-        'changes' => ['changes.php', 'تغییرات مرتبط با من', 'changes', $badges['changes']],
+        'changes' => ['changes.php', 'تغییرات مرتبط با من', 'changes', null],
         'notifications' => ['notifications.php', 'اعلان‌ها', 'bell', $totalNotifCount ?: null],
     ];
     ?><!DOCTYPE html>
@@ -61,7 +60,7 @@ function user_header(array $id, string $active, string $pageTitle): void
         <div class="header-top">
             <a class="brand" href="home.php">
                 <span class="brand-logo">
-                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="رابین‌فلو" class="brand-img">
+                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="" aria-hidden="true" class="brand-img">
                 </span>
                 <span class="brand-text">
                     <b>رابین‌فلو</b>
@@ -375,7 +374,7 @@ function app_footer(): void
 {
     ?>
 </main>
-<footer class="app-foot">✨ تمام حقوق اين وبسايت مربوط به تیم هوش تجاری رهباریان رابین است. ✨</footer>
+<footer class="app-foot">✨ تمام حقوق این وب‌سایت مربوط به تیم هوش تجاری رهیاران رابین است. ✨</footer>
 
 <script>
 (function() {
@@ -573,12 +572,12 @@ function discussion_dispatch_notifications(
 function team_header(array $id, string $active, string $pageTitle): void
 {
     $basicsChildren = [
-        'basics_bale' => ['basics_bale.php', 'پیام‌رسان بله'],
-        'basics_companies' => ['basics_companies.php', 'ایجاد شرکت'],
-        'basics_categories' => ['basics_categories.php', 'دسته فرآیند'],
-        'basics_teammates' => ['basics_teammates.php', 'هم‌تیمی'],
-        'basics_user_new' => ['basics_user_new.php', 'کاربر جدید'],
-        'basics_users' => ['basics_users.php', 'لیست کاربران'],
+        'basics_bale' => ['basics_bale.php', 'پیام‌رسان بله', 'chat'],
+        'basics_companies' => ['basics_companies.php', 'ایجاد شرکت', 'files'],
+        'basics_categories' => ['basics_categories.php', 'دسته فرآیند', 'folder_open'],
+        'basics_teammates' => ['basics_teammates.php', 'هم‌تیمی', 'team'],
+        'basics_user_new' => ['basics_user_new.php', 'کاربر جدید', 'plus_circle'],
+        'basics_users' => ['basics_users.php', 'لیست کاربران', 'users'],
     ];
     $basicsActive = isset($basicsChildren[$active]) || $active === 'basics';
     $tid = (int)($id['id'] ?? 0);
@@ -621,7 +620,7 @@ function team_header(array $id, string $active, string $pageTitle): void
         <div class="header-top">
             <a class="brand" href="home.php">
                 <span class="brand-logo">
-                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="رابین‌فلو" class="brand-img">
+                    <img src="<?= BASE_URL ?>/assets/logo.png" alt="" aria-hidden="true" class="brand-img">
                 </span>
                 <span class="brand-text">
                     <b>رابین‌فلو</b>
@@ -725,10 +724,17 @@ function team_header(array $id, string $active, string $pageTitle): void
             <div class="nav-item has-sub <?= $basicsActive ? 'active' : '' ?>" id="basicsMenu" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">
                 <?= app_icon('basics', 'tab-icon', 17) ?>
                 <span class="tab-label">اطلاعات پایه</span>
-                <span class="caret">▾</span>
+                <span class="caret" style="display:inline-flex;align-items:center;margin-right:2px"><?= app_icon('chevron_down', '', 11) ?></span>
                 <div class="submenu" id="basicsSubmenu" role="menu">
-                    <?php foreach ($basicsChildren as $key => [$href, $label]): ?>
-                        <a class="sub-item <?= $active === $key ? 'active' : '' ?>" href="<?= $href ?>" role="menuitem"><?= e($label) ?></a>
+                    <?php foreach ($basicsChildren as $key => $item): 
+                        $href = $item[0];
+                        $label = $item[1];
+                        $ico = $item[2] ?? 'basics';
+                    ?>
+                        <a class="sub-item <?= $active === $key ? 'active' : '' ?>" href="<?= $href ?>" role="menuitem" style="display:flex;align-items:center;gap:8px">
+                            <?= app_icon($ico, '', 14) ?>
+                            <span><?= e($label) ?></span>
+                        </a>
                     <?php endforeach; ?>
                 </div>
             </div>
