@@ -27,6 +27,12 @@ require_once __DIR__ . '/../inc/pdf_generator.php';
 require_once __DIR__ . '/../inc/bale.php';
 require_once __DIR__ . '/../inc/layout.php';
 
+// چرخش و مهار حجم فایل لاگ ورکر
+$logFile = __DIR__ . '/worker.log';
+if (file_exists($logFile) && filesize($logFile) > 2097152) { // 2MB
+    @rename($logFile, __DIR__ . '/worker.log.1');
+}
+
 $arg1 = $argv[1] ?? '--queue';
 $arg2 = $argv[2] ?? null;
 $timeStart = microtime(true);
@@ -62,12 +68,7 @@ function worker_run_revision_task(mysqli $db, int $taskId): bool
 
     echo "-> Running Revision Task #{$taskId} for Improvement #{$impId} (Team: {$teamId})...\n";
 
-    // تغییر وضعیت تسک به running
-    $st = $db->prepare("UPDATE HermesTasks SET Status = 'running', UpdatedAt = NOW() WHERE ID = ?");
-    $st->bind_param('i', $taskId);
-    $st->execute();
-    $st->close();
-
+    // تسک قبلاً در worker_route_task به صورت اتمیک Claim شده است.
     // اگر پیش‌نویس داده‌ها در payload نبود، خود ورکر پیش‌نویس را استخراج می‌کند
     if (!is_array($revisionData) || empty($revisionData['steps'])) {
         echo "   * Generating procedure draft with Hermes...\n";
@@ -175,15 +176,10 @@ function worker_run_discussion_mention_task(mysqli $db, int $taskId): bool
         return false;
     }
 
-    if ($task['Status'] === 'completed') {
-        echo "-> Task #{$taskId} is already completed.\n";
+    if ($task['Status'] === 'completed' || $task['Status'] === 'failed') {
+        echo "-> Task #{$taskId} is already {$task['Status']}.\n";
         return true;
     }
-
-    $st = $db->prepare("UPDATE HermesTasks SET Status = 'running', UpdatedAt = NOW() WHERE ID = ?");
-    $st->bind_param('i', $taskId);
-    $st->execute();
-    $st->close();
 
     $impId = (int)$task['RefID'];
     $payload = json_decode((string)$task['Payload'], true) ?: [];
@@ -227,11 +223,75 @@ function worker_run_discussion_mention_task(mysqli $db, int $taskId): bool
 }
 
 /**
+ * قفل و تصاحب اتمیک تسک (Atomic claim with timeout reclamation)
+ */
+function worker_claim_task(mysqli $db, int $taskId): bool
+{
+    // اگر تسک بیش از ۱۰ دقیقه در وضعیت running مانده باشد، بازپس‌گیری می‌شود
+    $stReclaim = $db->prepare("UPDATE HermesTasks SET Status = 'queued', LockedAt = NULL WHERE ID = ? AND Status = 'running' AND (LockedAt IS NULL OR LockedAt < DATE_SUB(NOW(), INTERVAL 10 MINUTE))");
+    if ($stReclaim) {
+        $stReclaim->bind_param('i', $taskId);
+        $stReclaim->execute();
+        $stReclaim->close();
+    }
+
+    // تصاحب اتمیک فقط در صورتی که تسک همچنان در وضعیت queued باشد
+    $stClaim = $db->prepare("UPDATE HermesTasks SET Status = 'running', LockedAt = NOW(), UpdatedAt = NOW() WHERE ID = ? AND Status = 'queued'");
+    $stClaim->bind_param('i', $taskId);
+    $stClaim->execute();
+    $claimed = ($stClaim->affected_rows === 1);
+    $stClaim->close();
+
+    return $claimed;
+}
+
+/**
+ * اجرای تسک پس‌زمینه مخابره پیام بله (Bale Broadcast Task)
+ */
+function worker_run_bale_broadcast_task(mysqli $db, int $taskId): bool
+{
+    $st = $db->prepare("SELECT * FROM HermesTasks WHERE ID = ?");
+    $st->bind_param('i', $taskId);
+    $st->execute();
+    $task = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$task) {
+        echo "-> ERROR: Bale Task #{$taskId} not found.\n";
+        return false;
+    }
+
+    $procId = (int)$task['RefID'];
+    $teamId = (int)($task['TeamID'] ?? 0);
+    $payload = json_decode((string)$task['Payload'], true) ?: [];
+
+    $subject = (string)($payload['subject'] ?? 'تغییر فرآیند');
+    $details = (string)($payload['details'] ?? '');
+    $link = (string)($payload['link'] ?? '');
+    $pdfPath = !empty($payload['pdf_path']) ? (string)$payload['pdf_path'] : null;
+
+    echo "-> Running Bale Broadcast Task #{$taskId} for Process #{$procId}...\n";
+    require_once __DIR__ . '/../inc/bale.php';
+    $res = bale_notify_process_change($db, $procId, $subject, $details, $link, $teamId, null, $pdfPath);
+
+    $resJson = json_encode($res, JSON_UNESCAPED_UNICODE);
+    $st = $db->prepare("UPDATE HermesTasks SET Status = 'completed', Result = ?, UpdatedAt = NOW() WHERE ID = ?");
+    $st->bind_param('si', $resJson, $taskId);
+    $st->execute();
+    $st->close();
+
+    $sent = $res['sent'] ?? 0;
+    $failed = $res['failed'] ?? 0;
+    echo "-> SUCCESS: Bale Broadcast Task #{$taskId} completed. Sent: {$sent}, Failed: {$failed}\n";
+    return true;
+}
+
+/**
  * هدایت اجرای تسک بر اساس نوع TaskType
  */
 function worker_route_task(mysqli $db, int $taskId): bool
 {
-    $st = $db->prepare("SELECT TaskType FROM HermesTasks WHERE ID = ?");
+    $st = $db->prepare("SELECT TaskType, Status FROM HermesTasks WHERE ID = ?");
     $st->bind_param('i', $taskId);
     $st->execute();
     $task = $st->get_result()->fetch_assoc();
@@ -242,8 +302,22 @@ function worker_route_task(mysqli $db, int $taskId): bool
         return false;
     }
 
+    if ($task['Status'] === 'completed' || $task['Status'] === 'failed') {
+        echo "-> Task #{$taskId} is already {$task['Status']}.\n";
+        return true;
+    }
+
+    if (!worker_claim_task($db, $taskId)) {
+        echo "-> Task #{$taskId} is already running or could not be claimed. Skipping.\n";
+        return false;
+    }
+
     if ($task['TaskType'] === 'discussion_mention') {
         return worker_run_discussion_mention_task($db, $taskId);
+    }
+
+    if ($task['TaskType'] === 'bale_broadcast') {
+        return worker_run_bale_broadcast_task($db, $taskId);
     }
 
     return worker_run_revision_task($db, $taskId);
@@ -280,6 +354,9 @@ if ($arg1 === '--task' && is_numeric($arg2)) {
 } else {
     // پردازش صف همه‌جانبه (Queue Mode): ارزیابی‌ها و بازنگری‌ها
     echo "-> Checking for pending tasks in queue...\n";
+
+    // ۰. بازپس‌گیری تسک‌های رها شده/قفل شده قدیمی (Reclaim stuck running tasks > 10 min)
+    $db->query("UPDATE HermesTasks SET Status = 'queued', LockedAt = NULL WHERE Status = 'running' AND (LockedAt IS NULL OR LockedAt < DATE_SUB(NOW(), INTERVAL 10 MINUTE))");
 
     // ۱. پردازش تسک‌های معلق صف (HermesTasks)
     $stTasks = $db->query("SELECT ID FROM HermesTasks WHERE Status = 'queued' ORDER BY CreatedAt ASC LIMIT 5");

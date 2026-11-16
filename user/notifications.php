@@ -2,8 +2,8 @@
 /**
  * مرکز اعلان‌ها و پیام‌ها — پنل کاربر
  */
-require __DIR__ . '/../inc/layout.php';
-require __DIR__ . '/../inc/ui.php';
+require_once __DIR__ . '/../inc/layout.php';
+require_once __DIR__ . '/../inc/ui.php';
 
 /* ---------- خروجی AJAX برای بررسی اعلان‌های خوانده‌نشده ---------- */
 if (isset($_GET['check_unread'])) {
@@ -22,46 +22,47 @@ if (isset($_GET['check_unread'])) {
     }
     $db = app_db();
     $uid = (int)$id['id'];
+    $compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
 
-    // اعلان‌های خوانده‌نشده هرمس
+    $counts = notification_get_unread_counts($db, 'user', $uid, $compId);
+    $hermesUnread = $counts['hermes'];
+    $msgUnread = $counts['message'];
+
+    // اعلان‌های خوانده‌نشده هرمس برای کاربر (تنها اعلان‌های مخاطب اختصاصی کاربر)
     $stH = $db->prepare(
-        "SELECT ID, Title, Body, Link, Priority, SentAt, Type 
-         FROM Notifications 
-         WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) 
-           AND IsRead = 0 
-           AND Type = 'hermes' 
-         ORDER BY ID DESC LIMIT 5"
+        "SELECT n.ID, n.Title, n.Body, n.Link, n.Priority, n.SentAt, n.Type 
+         FROM Notifications n 
+         WHERE n.TargetPersonnelID = ? 
+           AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+           AND NOT EXISTS (
+               SELECT 1 FROM NotificationReads nr 
+               WHERE nr.NotificationID = n.ID AND nr.ReaderType = 'user' AND nr.ReaderID = ?
+           )
+           AND n.Type = 'hermes' 
+         ORDER BY n.ID DESC LIMIT 5"
     );
-    $stH->bind_param('i', $uid);
+    $stH->bind_param('iiii', $uid, $compId, $compId, $uid);
     $stH->execute();
     $hermesRows = $stH->get_result()->fetch_all(MYSQLI_ASSOC);
     $stH->close();
 
-    $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
-    $cntH->bind_param('i', $uid);
-    $cntH->execute();
-    $hermesUnread = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
-    $cntH->close();
-
     // پیام‌های گفتگو خوانده‌نشده
     $stM = $db->prepare(
-        "SELECT ID, Title, Body, Link, Priority, SentAt, Type 
-         FROM Notifications 
-         WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) 
-           AND IsRead = 0 
-           AND Type = 'message' 
-         ORDER BY ID DESC LIMIT 5"
+        "SELECT n.ID, n.Title, n.Body, n.Link, n.Priority, n.SentAt, n.Type 
+         FROM Notifications n 
+         WHERE (n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL)) 
+           AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+           AND NOT EXISTS (
+               SELECT 1 FROM NotificationReads nr 
+               WHERE nr.NotificationID = n.ID AND nr.ReaderType = 'user' AND nr.ReaderID = ?
+           )
+           AND n.Type = 'message' 
+         ORDER BY n.ID DESC LIMIT 5"
     );
-    $stM->bind_param('i', $uid);
+    $stM->bind_param('iiii', $uid, $compId, $compId, $uid);
     $stM->execute();
     $msgRows = $stM->get_result()->fetch_all(MYSQLI_ASSOC);
     $stM->close();
-
-    $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'message'");
-    $cntM->bind_param('i', $uid);
-    $cntM->execute();
-    $msgUnread = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
-    $cntM->close();
 
     echo json_encode([
         'unread_count' => ($hermesUnread + $msgUnread),
@@ -82,27 +83,24 @@ if (isset($_REQUEST['mark_read_ajax'])) {
         echo json_encode(['ok' => false]);
         exit;
     }
-    $db = app_db();
-    $uid = (int)$id['id'];
-    $notifId = (int)($_REQUEST['id'] ?? 0);
-    if ($notifId > 0) {
-        $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE ID = ? AND (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL))");
-        $st->bind_param('ii', $notifId, $uid);
-        $st->execute();
-        $st->close();
+    // احراز هویت توکن CSRF در صورت ارسال از طریق POST
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_check($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'CSRF error']);
+        exit;
     }
 
-    $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
-    $cntH->bind_param('i', $uid);
-    $cntH->execute();
-    $hermesUnread = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
-    $cntH->close();
+    $db = app_db();
+    $uid = (int)$id['id'];
+    $compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
+    $notifId = (int)($_REQUEST['id'] ?? 0);
+    if ($notifId > 0) {
+        notification_mark_read($db, 'user', $uid, $compId, $notifId);
+    }
 
-    $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'message'");
-    $cntM->bind_param('i', $uid);
-    $cntM->execute();
-    $msgUnread = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
-    $cntM->close();
+    $counts = notification_get_unread_counts($db, 'user', $uid, $compId);
+    $hermesUnread = $counts['hermes'];
+    $msgUnread = $counts['message'];
 
     echo json_encode([
         'ok' => true,
@@ -116,6 +114,7 @@ if (isset($_REQUEST['mark_read_ajax'])) {
 $id = require_area('user');
 $db = app_db();
 $uid = (int)$id['id'];
+$compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
 $tab = (string)($_GET['tab'] ?? 'hermes');
 if (!in_array($tab, ['hermes', 'messages'], true)) {
     $tab = 'hermes';
@@ -127,19 +126,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = (string)($_POST['action'] ?? '');
         $postTab = (string)($_POST['tab'] ?? $tab);
         if ($action === 'mark_all_read') {
-            $typeCondition = ($postTab === 'messages') ? "AND Type = 'message'" : "AND Type = 'hermes'";
-            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 {$typeCondition}");
-            $st->bind_param('i', $uid);
-            $st->execute();
-            $st->close();
+            $typeFilter = ($postTab === 'messages') ? 'message' : 'hermes';
+            notification_mark_all_read($db, 'user', $uid, $compId, $typeFilter);
             header('Location: notifications.php?tab=' . urlencode($postTab));
             exit;
         } elseif ($action === 'mark_read') {
             $notifId = (int)($_POST['notif_id'] ?? 0);
-            $st = $db->prepare("UPDATE Notifications SET IsRead = 1 WHERE ID = ? AND (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL))");
-            $st->bind_param('ii', $notifId, $uid);
-            $st->execute();
-            $st->close();
+            notification_mark_read($db, 'user', $uid, $compId, $notifId);
             header('Location: notifications.php?tab=' . urlencode($postTab));
             exit;
         }
@@ -147,29 +140,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // تعداد اعلان‌های خوانده‌نشده جهت نمایش روی تب‌ها
-$cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
-$cntH->bind_param('i', $uid);
-$cntH->execute();
-$unreadHermesCount = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
-$cntH->close();
+$counts = notification_get_unread_counts($db, 'user', $uid, $compId);
+$unreadHermesCount = $counts['hermes'];
+$unreadMsgCount = $counts['message'];
 
-$cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'message'");
-$cntM->bind_param('i', $uid);
-$cntM->execute();
-$unreadMsgCount = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
-$cntM->close();
-
-// دریافت لیست اعلان‌های تب جاری
+// دریافت لیست اعلان‌های تب جاری (برای هرمس تنها اعلان‌های اختصاصی خود کاربر نمایش داده می‌شود)
 $targetType = ($tab === 'messages') ? 'message' : 'hermes';
+$userTargetClause = ($targetType === 'hermes') 
+    ? "n.TargetPersonnelID = ?" 
+    : "(n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL))";
+
 $st = $db->prepare(
-    "SELECT n.*, p.Name AS ProcName 
+    "SELECT n.*, p.Name AS ProcName,
+            (CASE WHEN nr.ReadAt IS NOT NULL THEN 1 ELSE 0 END) AS IsRead
      FROM Notifications n
      LEFT JOIN Processes p ON p.ID = n.ProcessID
-     WHERE (n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL))
+     LEFT JOIN NotificationReads nr ON nr.NotificationID = n.ID AND nr.ReaderType = 'user' AND nr.ReaderID = ?
+     WHERE {$userTargetClause}
+       AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
        AND n.Type = ?
      ORDER BY n.ID DESC LIMIT 100"
 );
-$st->bind_param('is', $uid, $targetType);
+$st->bind_param('iiiis', $uid, $uid, $compId, $compId, $targetType);
 $st->execute();
 $notifications = $st->get_result()->fetch_all(MYSQLI_ASSOC);
 $st->close();
@@ -249,15 +241,24 @@ user_header($id, 'notifications', 'مرکز اعلان‌ها و پیام‌ها
                                 </h3>
                                 <p style="margin:0;font-size:13px;color:var(--ink);opacity:.85;line-height:1.7"><?= nl2br(e($n['Body'])) ?></p>
                                 
-                                <?php if (!empty($n['Link'])): ?>
-                                    <div style="margin-top:10px">
+                                <?php 
+                                    $link = trim((string)($n['Link'] ?? ''));
+                                    if ($link !== '') {
+                                        if (str_starts_with($link, '/processes/')) {
+                                            $link = BASE_URL . '/download.php?path=' . rawurlencode(ltrim(substr($link, strlen('/processes/')), '/'));
+                                        } elseif (str_starts_with($link, 'processes/')) {
+                                            $link = BASE_URL . '/download.php?path=' . rawurlencode(ltrim(substr($link, strlen('processes/')), '/'));
+                                        }
+                                    }
+                                    if (!empty($link) && is_safe_app_url($link)):
+                                ?>
+                                    <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                                         <?php 
-                                            $link = $n['Link'];
                                             $btnLabel = 'مشاهده پیوند مرتبط';
                                             $btnIcon = 'files';
-                                            if (str_contains($link, '.pdf')) {
+                                            if (str_contains($link, '.pdf') || str_contains($link, 'download.php')) {
                                                 $btnLabel = 'مشاهده و دریافت سند PDF پیوست';
-                                                $btnIcon = 'files';
+                                                $btnIcon = 'pdf';
                                             } elseif (str_contains($link, 'discussion.php')) {
                                                 $btnLabel = 'ورود به گفتگو و ارسال پاسخ';
                                                 $btnIcon = 'discussion';
@@ -266,10 +267,16 @@ user_header($id, 'notifications', 'مرکز اعلان‌ها و پیام‌ها
                                                 $btnIcon = 'processes';
                                             }
                                         ?>
-                                        <a href="<?= e($link) ?>" class="btn btn-sm <?= str_contains($link, '.pdf') ? 'btn-brand' : 'btn-ghost' ?>" style="display:inline-flex;align-items:center;gap:6px">
+                                        <a href="<?= e($link) ?>" target="_blank" rel="noopener" class="btn btn-sm <?= (str_contains($link, '.pdf') || str_contains($link, 'download.php')) ? 'btn-brand' : 'btn-ghost' ?>" style="display:inline-flex;align-items:center;gap:6px">
                                             <?= app_icon($btnIcon, '', 14) ?>
                                             <span><?= e($btnLabel) ?></span>
                                         </a>
+                                        <?php if (!empty($n['ProcessID'])): ?>
+                                            <a href="processes.php?id=<?= (int)$n['ProcessID'] ?>" class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center;gap:6px">
+                                                <?= app_icon('processes', '', 14) ?>
+                                                <span>مشاهده در سامانه</span>
+                                            </a>
+                                        <?php endif; ?>
                                     </div>
                                 <?php endif; ?>
                             </div>

@@ -45,6 +45,19 @@ function bale_sanitize_url(?string $url, int $processId = 0): string
 }
 
 /**
+ * دریافت شناسه تماس معتبر برای ارسال در بله بر اساس اولویت استاندارد:
+ * اولویت: شناسه مستقیم چت بله (BaleChatID) و در صورت عدم وجود، شماره تلفن همراه (Phone).
+ */
+function bale_resolve_contact(?string $baleChatId, ?string $phone): string
+{
+    $b = trim((string)$baleChatId);
+    if ($b !== '') {
+        return $b;
+    }
+    return trim((string)$phone);
+}
+
+/**
  * ارسال یک پیام به بله با استفاده از API
  *
  * مشخصات وب‌سرویس اختصاصی بر اساس cURL ارائه‌شده:
@@ -95,7 +108,7 @@ function bale_send_message(
     $linkUrl = ($rawLink !== null && trim($rawLink) !== '') ? bale_sanitize_url($rawLink, $processId ?: 0) : '';
 
     $attachFile = $attachmentPath ?? ($meta['attachment'] ?? null);
-    $attachType = $attachmentType ?? ($meta['attachment_type'] ?? 'document');
+    $attachType = !empty($meta['attachment_type']) ? (string)$meta['attachment_type'] : $attachmentType;
 
     $postFields = [
         'phone'           => $phone,
@@ -127,16 +140,21 @@ function bale_send_message(
     }
 
     $ch = curl_init($apiUrl);
-    curl_setopt_array($ch, [
+    $curlOpts = [
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => $postFields,
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => (int)BALE_TIMEOUT,
         CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-    ]);
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+    ];
+    $cainfo = ini_get('curl.cainfo') ?: ini_get('openssl.cafile');
+    if ($cainfo && file_exists($cainfo)) {
+        $curlOpts[CURLOPT_CAINFO] = $cainfo;
+    }
+    curl_setopt_array($ch, $curlOpts);
 
     $rawResponse = curl_exec($ch);
     $curlError   = curl_error($ch);
@@ -493,7 +511,7 @@ function bale_notify_process_change(
     $dispatched = [];
 
     foreach ($recipients as $rec) {
-        $phone = trim($rec['phone'] ?: $rec['bale_chat_id']);
+        $phone = bale_resolve_contact($rec['bale_chat_id'] ?? null, $rec['phone'] ?? null);
         if ($phone === '') {
             // شخص شماره تماس یا شناسه بله ثبت نکرده است
             $dispatched[] = [
@@ -617,7 +635,7 @@ function bale_notify_discussion_message(
             $leader = $pst->get_result()->fetch_assoc();
             $pst->close();
             if ($leader) {
-                $phone = trim((string)($leader['Phone'] ?: $leader['BaleChatID']));
+                $phone = bale_resolve_contact($leader['BaleChatID'] ?? null, $leader['Phone'] ?? null);
                 $recName = trim($leader['Name'] . ' ' . $leader['Family']);
             }
         }
@@ -625,11 +643,14 @@ function bale_notify_discussion_message(
         // اگر شماره لیدر ست نبود، بررسی متولی فرآیند در چارت سازمانی
         if ($phone === '') {
             $recs = bale_get_process_recipients($db, $procId);
-            foreach ($recs as $r) {
-                if ($r['role'] === 'owner' && !empty($r['phone'])) {
-                    $phone = $r['phone'];
-                    $recName = $r['name'];
-                    break;
+            $allRecs = $recs['all_recipients'] ?? [];
+            foreach ($allRecs as $r) {
+                if (($r['role'] ?? '') === 'owner') {
+                    $phone = bale_resolve_contact($r['bale_chat_id'] ?? null, $r['phone'] ?? null);
+                    $recName = $r['name'] ?? '';
+                    if ($phone !== '') {
+                        break;
+                    }
                 }
             }
         }
@@ -666,7 +687,7 @@ function bale_notify_discussion_message(
         $pst->close();
 
         if (!$user) return false;
-        $phone = trim((string)($user['Phone'] ?: $user['BaleChatID']));
+        $phone = bale_resolve_contact($user['BaleChatID'] ?? null, $user['Phone'] ?? null);
         if ($phone === '') return false;
 
         $fromTitle = in_array($senderType, ['hermes', 'ai'], true) ? 'هوش مصنوعی هرمس' : ('تیم فرآیند (' . $senderLabel . ')');

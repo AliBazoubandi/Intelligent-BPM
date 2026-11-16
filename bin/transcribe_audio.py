@@ -6,6 +6,12 @@ Transcribes uploaded interview audio (mp3, wav, m4a, ogg, webm, etc.) to Persian
 Uses ffmpeg to convert to 16kHz mono WAV with dynamic audio normalization,
 then uses SpeechRecognition with Google Speech API (fa-IR).
 Guarantees ASCII-only JSON output (ensure_ascii=True) to avoid Windows charmap errors.
+
+PRIVACY & CONFIDENTIALITY NOTICE:
+This module uses Google Speech API (fa-IR) for Persian transcription.
+Audio segments are transmitted over HTTPS to Google's public speech recognition endpoint.
+For strictly confidential, air-gapped, or regulated environments, consider deploying
+an on-premise model (such as OpenAI Whisper or faster-whisper) on a dedicated local server.
 """
 
 import sys
@@ -62,6 +68,7 @@ def transcribe_wav(wav_path, language="fa-IR"):
     with sr.AudioFile(wav_path) as source:
         audio_duration = source.DURATION
         full_text_parts = []
+        errors = []
         
         # If audio is short (under 55 seconds), transcribe in one pass
         if audio_duration <= 55:
@@ -73,7 +80,7 @@ def transcribe_wav(wav_path, language="fa-IR"):
             except sr.UnknownValueError:
                 pass
             except sr.RequestError as e:
-                raise RuntimeError(f"Speech service error: {e}")
+                errors.append(f"Request error: {e}")
         else:
             # Chunk long audio into 45-second segments
             offset = 0.0
@@ -89,10 +96,19 @@ def transcribe_wav(wav_path, language="fa-IR"):
                     except sr.UnknownValueError:
                         pass
                     except sr.RequestError as e:
-                        pass
+                        errors.append(f"Chunk at {int(offset)}s: {e}")
                 offset += (chunk_len - 3.0)  # 3-second overlap to prevent cutoffs
                 
-        return " ".join(full_text_parts).strip()
+        final_text = " ".join(full_text_parts).strip()
+        is_partial = len(errors) > 0 and len(final_text) > 0
+        if not final_text and errors:
+            raise RuntimeError("خطا در ارتباط با سرویس تشخیص گفتار: " + "; ".join(errors))
+
+        return {
+            "text": final_text,
+            "partial": is_partial,
+            "errors": errors
+        }
 
 def main():
     if len(sys.argv) < 2:
@@ -107,7 +123,8 @@ def main():
     temp_wav = None
     try:
         temp_wav = convert_to_wav(input_file)
-        text = transcribe_wav(temp_wav, language="fa-IR")
+        result = transcribe_wav(temp_wav, language="fa-IR")
+        text = result["text"]
         
         if not text:
             print(json.dumps({
@@ -118,7 +135,9 @@ def main():
         else:
             print(json.dumps({
                 "success": True,
-                "text": text
+                "text": text,
+                "partial": result.get("partial", False),
+                "warnings": result.get("errors", [])
             }, ensure_ascii=True))
             
     except Exception as e:

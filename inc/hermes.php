@@ -110,36 +110,27 @@ function hermes_find_php_binary(): string
  *
  * @param int $improvementId شناسه بهبود (یا 0 برای پردازش صف)
  */
-function hermes_dispatch_async_eval(int $improvementId = 0): bool
+/**
+ * اجرای مستقل و بدون بلاک ورکر پس‌زمینه هرمس (Background Process Spawner)
+ */
+function hermes_spawn_worker(string $args = '--queue'): bool
 {
-    if ($improvementId > 0) {
-        try {
-            $db = app_db();
-            $st = $db->prepare("SELECT AiVerdict FROM Improvements WHERE ID = ?");
-            $st->bind_param('i', $improvementId);
-            $st->execute();
-            $cur = $st->get_result()->fetch_assoc();
-            $st->close();
-            if ($cur && in_array($cur['AiVerdict'], ['yes', 'no'], true)) {
-                return true; // قبلاً ارزیابی شده؛ از ارسال تکراری جلوگیری شد
-            }
-        } catch (Throwable $e) {
-            // در صورت بروز خطا در بررسی، روند عادی ادامه می‌یابد
-        }
-    }
-
     $phpBin = hermes_find_php_binary();
     $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
     if (!$workerPath || !file_exists($workerPath)) {
         return false;
     }
 
-    $arg = ($improvementId > 0) ? (string)$improvementId : '--queue';
     $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
+
+    // چرخش لاگ در صورت عبور از ۲ مگابایت
+    if (file_exists($logFile) && filesize($logFile) > 2097152) {
+        @rename($logFile, $logFile . '.1');
+    }
 
     if (stripos(PHP_OS, 'WIN') === 0) {
         // ویندوز: استفاده از cmd /c start /B تا خروجی پردازه فرزند به فایل لاگ ارسال شود
-        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, escapeshellarg($arg), $logFile);
+        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, $args, $logFile);
         $handle = @popen($cmd, 'r');
         if ($handle) {
             pclose($handle);
@@ -147,7 +138,7 @@ function hermes_dispatch_async_eval(int $improvementId = 0): bool
         }
     } else {
         // لینوکس / یونیکس
-        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, escapeshellarg($arg), $logFile);
+        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, $args, $logFile);
         @exec($cmd);
         return true;
     }
@@ -156,14 +147,41 @@ function hermes_dispatch_async_eval(int $improvementId = 0): bool
 }
 
 /**
- * ارسال غیراسنکرون (Async) عملیات بازنگری، بایگانی و تدوین سند فرآیند به ورکر پس‌زمینه هرمس
- * بلافاصله تسک را در دیتابیس ثبت کرده و کنترل را در چند میلی‌ثانیه به کاربر بازمی‌گرداند.
+ * راه‌اندازی صف پس‌زمینه پردازش تسک‌های هرمس
+ */
+function hermes_dispatch_queue(): bool
+{
+    return hermes_spawn_worker('--queue');
+}
+
+/**
+ * ارسال غیراسنکرون (Async) کار ارزیابی به ورکر پس‌زمینه
  *
- * @param mysqli $db
- * @param int $improvementId شناسه پیشنهاد بهبود
- * @param int $teamId شناسه تیم انجام‌دهنده
- * @param array|null $revisionData اطلاعات بازنگری (اختیاری)
- * @return int شناسه تسک ایجادشده در جدول HermesTasks (یا 0 در صورت خطا)
+ * @param int $improvementId شناسه بهبود (یا 0 برای پردازش صف)
+ */
+function hermes_dispatch_async_eval(int $improvementId = 0): bool
+{
+    if ($improvementId <= 0) {
+        return hermes_dispatch_queue();
+    }
+
+    try {
+        $db = app_db();
+        $st = $db->prepare("SELECT AiVerdict FROM Improvements WHERE ID = ?");
+        $st->bind_param('i', $improvementId);
+        $st->execute();
+        $cur = $st->get_result()->fetch_assoc();
+        $st->close();
+        if ($cur && in_array($cur['AiVerdict'], ['yes', 'no'], true)) {
+            return true; // قبلاً ارزیابی شده؛ جلوگیری از اجرای مجدد
+        }
+    } catch (Throwable) {}
+
+    return hermes_spawn_worker((string)$improvementId);
+}
+
+/**
+ * ارسال غیراسنکرون (Async) عملیات بازنگری، بایگانی و تدوین سند فرآیند به ورکر پس‌زمینه هرمس
  */
 function hermes_dispatch_async_revision(mysqli $db, int $improvementId, int $teamId, ?array $revisionData = null): int
 {
@@ -174,28 +192,8 @@ function hermes_dispatch_async_revision(mysqli $db, int $improvementId, int $tea
     $taskId = (int)$db->insert_id;
     $st->close();
 
-    if ($taskId <= 0) {
-        return 0;
-    }
-
-    $phpBin = hermes_find_php_binary();
-    $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
-    if (!$workerPath || !file_exists($workerPath)) {
-        return $taskId;
-    }
-
-    $arg = '--task ' . $taskId;
-    $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
-
-    if (stripos(PHP_OS, 'WIN') === 0) {
-        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, $arg, $logFile);
-        $handle = @popen($cmd, 'r');
-        if ($handle) {
-            pclose($handle);
-        }
-    } else {
-        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, $arg, $logFile);
-        @exec($cmd);
+    if ($taskId > 0) {
+        hermes_spawn_worker('--task ' . $taskId);
     }
 
     return $taskId;
@@ -203,7 +201,6 @@ function hermes_dispatch_async_revision(mysqli $db, int $improvementId, int $tea
 
 /**
  * ارسال غیراسنکرون (Async) درخواست پاسخ هرمس به منشن گفتگو (@Hermes)
- * تسک را در HermesTasks ثبت و پردازش را در پس‌زمینه می‌سپارد و کنترل را بلافاصله برمی‌گرداند.
  */
 function hermes_dispatch_async_discussion_mention(
     mysqli $db,
@@ -226,28 +223,27 @@ function hermes_dispatch_async_discussion_mention(
     $taskId = (int)$db->insert_id;
     $st->close();
 
-    if ($taskId <= 0) {
-        return 0;
+    if ($taskId > 0) {
+        hermes_spawn_worker('--task ' . $taskId);
     }
 
-    $phpBin = hermes_find_php_binary();
-    $workerPath = realpath(__DIR__ . '/../bin/hermes_worker.php');
-    if (!$workerPath || !file_exists($workerPath)) {
-        return $taskId;
-    }
+    return $taskId;
+}
 
-    $arg = '--task ' . $taskId;
-    $logFile = defined('APP_ROOT') ? (APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'worker.log') : (__DIR__ . '/../bin/worker.log');
+/**
+ * ارسال غیراسنکرون اعلان تغییرات فرآیند به پیام‌رسان بله در صف پس‌زمینه
+ */
+function hermes_dispatch_async_bale_broadcast(mysqli $db, int $processId, int $teamId, array $baleData): int
+{
+    $payload = json_encode($baleData, JSON_UNESCAPED_UNICODE);
+    $st = $db->prepare("INSERT INTO HermesTasks (TaskType, RefID, TeamID, Status, Payload) VALUES ('bale_broadcast', ?, ?, 'queued', ?)");
+    $st->bind_param('iis', $processId, $teamId, $payload);
+    $st->execute();
+    $taskId = (int)$db->insert_id;
+    $st->close();
 
-    if (stripos(PHP_OS, 'WIN') === 0) {
-        $cmd = sprintf('start /B "" cmd /c ""%s" "%s" %s >> "%s" 2>&1"', $phpBin, $workerPath, $arg, $logFile);
-        $handle = @popen($cmd, 'r');
-        if ($handle) {
-            pclose($handle);
-        }
-    } else {
-        $cmd = sprintf('"%s" "%s" %s >> "%s" 2>&1 &', $phpBin, $workerPath, $arg, $logFile);
-        @exec($cmd);
+    if ($taskId > 0) {
+        hermes_spawn_worker('--task ' . $taskId);
     }
 
     return $taskId;
@@ -810,7 +806,9 @@ function hermes_draft_procedure_revision(mysqli $db, int $improvementId): array
     // دریافت اطلاعات بهبود و فرآیند
     $st = $db->prepare(
         "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
-                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID,
+                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID, p.OwnerPositionID,
+                ownerPers.Name AS OwnerPersName, ownerPers.Family AS OwnerPersFamily,
+                ownerPos.Title AS OwnerPosTitle,
                 cat.Title AS CatTitle, cat.FolderName,
                 comp.Name AS CompanyName,
                 team.TeamName AS RespTeamName,
@@ -821,6 +819,8 @@ function hermes_draft_procedure_revision(mysqli $db, int $improvementId): array
          LEFT JOIN Companies comp ON comp.ID = p.CompanyID
          LEFT JOIN ProcessTeams team ON team.ID = p.ResponsibleTeamID
          LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type = 'user'
+         LEFT JOIN Personnel ownerPers ON ownerPers.ID = p.OwnerPersonnelID
+         LEFT JOIN OrgPositions ownerPos ON ownerPos.ID = p.OwnerPositionID
          WHERE i.ID = ?"
     );
     $st->bind_param('i', $improvementId);
@@ -967,7 +967,7 @@ function hermes_draft_procedure_revision(mysqli $db, int $improvementId): array
         'optimization_impact' => trim((string)($parsed['optimization_impact'] ?? '')),
         'resp_team' => $row['RespTeamName'] ?: 'تیم فرآیند',
         'company_name' => $row['CompanyName'] ?? (defined('APP_NAME') ? APP_NAME : 'سازمان'),
-        'owner_name' => trim((string)$row['OwnerPersonnelID']),
+        'owner_name' => trim((string)(trim(($row['OwnerPersName'] ?? '') . ' ' . ($row['OwnerPersFamily'] ?? '')) ?: ($row['OwnerPosTitle'] ?? 'تعیین نشده'))),
         'revision_history' => $history,
     ];
 
@@ -1039,34 +1039,28 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
         $relDir = fm_normalize_rel($proc['FolderName'] . '/' . $proc['ProcName']);
     }
     $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir);
-    if (!is_dir($absDir)) {
-        @mkdir($absDir, 0775, true);
-        @file_put_contents($absDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+
+    // ۱. بررسی تداخل پوشه نسخه تاریخی (عدم بازنویسی و برخورد تاریخچه‌ها)
+    $historySubdir = 'v' . preg_replace('/[^\w.-]/', '_', $oldVersion);
+    $historyDir = $absDir . DIRECTORY_SEPARATOR . 'history' . DIRECTORY_SEPARATOR . $historySubdir;
+    if (is_dir($historyDir)) {
+        return [
+            'success' => false,
+            'new_version' => $newVersion,
+            'pdf_name' => '',
+            'pdf_url' => '',
+            'error' => "پوشه نسخه تاریخی «{$historySubdir}» از قبل وجود دارد. جهت حفظ یکپارچگی سوابق، بازنویسی انجام نشد."
+        ];
     }
 
-    // ۱. بایگانی مستندات پیشین در پوشه history/v{old_version}/
-    $historyDir = $absDir . DIRECTORY_SEPARATOR . 'history' . DIRECTORY_SEPARATOR . 'v' . preg_replace('/[^\w.-]/', '_', $oldVersion);
-    if (!is_dir($historyDir)) {
-        @mkdir($historyDir, 0775, true);
-        @file_put_contents($historyDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+    // ۲. آماده‌سازی موقت فایل‌ها در دایرکتوری استیج (Staging) موقت
+    $tempStageDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'rf_rev_' . uniqid('', true);
+    if (!@mkdir($tempStageDir, 0700, true)) {
+        return ['success' => false, 'new_version' => $newVersion, 'pdf_name' => '', 'pdf_url' => '', 'error' => 'ایجاد دایرکتوری موقت استیجینگ ناموفق بود.'];
     }
 
-    // کپی اسناد متنی و PDF فعلی به پوشه آرشیو
-    if (is_dir($absDir)) {
-        foreach (scandir($absDir) as $f) {
-            if ($f === '.' || $f === '..' || $f === 'history' || str_starts_with($f, '.')) continue;
-            $sourcePath = $absDir . DIRECTORY_SEPARATOR . $f;
-            if (is_file($sourcePath)) {
-                $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
-                if (in_array($ext, ['pdf', 'txt', 'md', 'docx'], true)) {
-                    @copy($sourcePath, $historyDir . DIRECTORY_SEPARATOR . $f);
-                }
-            }
-        }
-    }
-
-    // ۲. تولید PDF جدید با موتور mPDF
     $pdfFileName = 'دستورالعمل-فرآیند-v' . $newVersion . '.pdf';
+    $stagedPdfPath = $tempStageDir . DIRECTORY_SEPARATOR . $pdfFileName;
     $targetPdfPath = $absDir . DIRECTORY_SEPARATOR . $pdfFileName;
     $canonicalPdfPath = $absDir . DIRECTORY_SEPARATOR . 'دستورالعمل-فرآیند.pdf';
 
@@ -1075,16 +1069,19 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
     $revisionData['improvement_id'] = (int)$proc['ID'];
     $revisionData['improvement_title'] = $proc['Title'];
 
+    // الف) تولید فایل PDF در پوشه استیجینگ
     try {
-        generate_process_procedure_pdf($proc, $revisionData, $targetPdfPath);
-        // کپی به عنوان نسخه جاری
-        @copy($targetPdfPath, $canonicalPdfPath);
+        generate_process_procedure_pdf($proc, $revisionData, $stagedPdfPath);
     } catch (Throwable $e) {
+        fm_remove($tempStageDir);
         return ['success' => false, 'new_version' => $newVersion, 'pdf_name' => '', 'pdf_url' => '', 'error' => 'خطا در ایجاد فایل PDF: ' . $e->getMessage()];
     }
 
-    // ۳. نگارش فایل متنی دستورالعمل جهت بازیابی آنی در چت RAG هرمس
+    // ب) نگارش فایل متنی دستورالعمل در پوشه استیجینگ
     $txtFileName = 'دستورالعمل-فرآیند.txt';
+    $stagedTxtPath = $tempStageDir . DIRECTORY_SEPARATOR . $txtFileName;
+    $targetTxtPath = $absDir . DIRECTORY_SEPARATOR . $txtFileName;
+
     $txtContent = "فرآیند: {$proc['ProcName']}\n"
         . "دسته‌بندی: {$proc['CatTitle']}\n"
         . "نسخه: {$newVersion}\n"
@@ -1102,9 +1099,9 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
             }
         }
     }
-    @file_put_contents($absDir . DIRECTORY_SEPARATOR . $txtFileName, $txtContent);
+    @file_put_contents($stagedTxtPath, $txtContent);
 
-    // ۴. به‌روزرسانی تراکنشی دیتابیس
+    // ۳. اجرای تراکنش دیتابیس (کلیه تغییرات داده‌ای قبل از تغییر در فایل‌های نهایی)
     $db->begin_transaction();
     try {
         // الف) ثبت در جدول Changes
@@ -1147,11 +1144,55 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
         $st->execute();
         $st->close();
 
+        // تأیید قطعی تراکنش در پایگاه‌داده
         $db->commit();
     } catch (Throwable $dbErr) {
         $db->rollback();
-        return ['success' => false, 'new_version' => $newVersion, 'pdf_name' => '', 'pdf_url' => '', 'error' => 'خطای دیتابیس در ذخیره تغییرات: ' . $dbErr->getMessage()];
+        // پاک‌سازی کامل استیج در صورت شکست تراکنش
+        fm_remove($tempStageDir);
+        return [
+            'success' => false,
+            'new_version' => $newVersion,
+            'pdf_name' => '',
+            'pdf_url' => '',
+            'error' => 'خطای دیتابیس در ذخیره تغییرات (تراکنش لغو شد و تغییری در فایل‌ها اعمال نشد): ' . $dbErr->getMessage()
+        ];
     }
+
+    // ۴. اعمال فایل‌ها بر روی سیستم‌فایل پس از commit موفقیت‌آمیز دیتابیس
+    if (!is_dir($absDir)) {
+        @mkdir($absDir, 0775, true);
+        @file_put_contents($absDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+    }
+
+    // الف) بایگانی مستندات پیشین در پوشه history/v{old_version}/
+    @mkdir($historyDir, 0775, true);
+    @file_put_contents($historyDir . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+
+    if (is_dir($absDir)) {
+        foreach (scandir($absDir) as $f) {
+            if ($f === '.' || $f === '..' || $f === 'history' || str_starts_with($f, '.')) continue;
+            $sourcePath = $absDir . DIRECTORY_SEPARATOR . $f;
+            if (is_file($sourcePath)) {
+                $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                if (in_array($ext, ['pdf', 'txt', 'md', 'docx'], true)) {
+                    @copy($sourcePath, $historyDir . DIRECTORY_SEPARATOR . $f);
+                }
+            }
+        }
+    }
+
+    // ب) انتقال اتمیک فایل‌های جدید از استیج به مسیر نهایی فرآیند
+    if (file_exists($stagedPdfPath)) {
+        @rename($stagedPdfPath, $targetPdfPath);
+        @copy($targetPdfPath, $canonicalPdfPath);
+    }
+    if (file_exists($stagedTxtPath)) {
+        @rename($stagedTxtPath, $targetTxtPath);
+    }
+
+    // پاک‌سازی دایرکتوری موقت
+    fm_remove($tempStageDir);
 
     return [
         'success' => true,
@@ -1634,14 +1675,20 @@ function hermes_create_process_from_design(mysqli $db, array $designData, int $t
     $catFolder = $cat['FolderName'];
     $catTitle = $cat['Title'];
 
-    // بررسی تکراری نبودن نام
-    $st = $db->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
-    $st->bind_param('s', $cleanName);
-    $st->execute();
-    $existing = $st->get_result()->fetch_assoc();
-    $st->close();
-    if ($existing) {
-        $cleanName .= ' - ویرایش ' . date('md');
+    // بررسی تکراری نبودن نام با لوپ یکتا برای جلوگیری از برخورد
+    $baseCleanName = $cleanName;
+    $suffixIndex = 1;
+    while (true) {
+        $st = $db->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
+        $st->bind_param('s', $cleanName);
+        $st->execute();
+        $existing = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$existing) {
+            break;
+        }
+        $suffixIndex++;
+        $cleanName = $baseCleanName . ' - ویرایش ' . date('md-His') . ($suffixIndex > 2 ? '-' . $suffixIndex : '');
     }
 
     // مسیر فیزیکی فرآیند
@@ -1694,135 +1741,135 @@ function hermes_create_process_from_design(mysqli $db, array $designData, int $t
         if ($pRow) $ownerPosTitle = $pRow['Title'];
     }
 
-    // ۱. ثبت در جدول Processes
-    $compParam = $companyId > 0 ? $companyId : null;
-    $st = $db->prepare(
-        "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-    );
-    $st->bind_param('siisiiisssss', $cleanName, $catId, $compParam, $rel, $ownerId, $ownerPosId, $teamId, $desc, $audType, $audDept, $status, $version);
-    $st->execute();
-    $newProcId = (int)$db->insert_id;
-    $st->close();
-
-    // ۲. تولید و ذخیره فایل سند رسمی PDF
     $pdfFileName = 'دستورالعمل-فرآیند-v' . $version . '.pdf';
     $pdfFullPath = $abs . DIRECTORY_SEPARATOR . $pdfFileName;
+    $txtFullPath = $abs . DIRECTORY_SEPARATOR . 'دستورالعمل-فرآیند.txt';
 
-    $processMeta = [
-        'ID' => $newProcId,
-        'Name' => $cleanName,
-        'CatTitle' => $catTitle,
-        'CompanyName' => $companyName,
-        'RespTeam' => $respTeamName,
-        'OwnerPositionTitle' => $ownerPosTitle,
-        'AudienceLabel' => match ($audType) {
-            'department' => 'دپارتمان ' . ($audDept ?: 'مربوطه'),
-            'specific_positions' => 'سمت‌های تخصصی درگیر',
-            'specific_personnel' => 'پرسنل مشخص مرتبط',
-            default => 'کلیه پرسنل سازمان'
-        },
-        'Version' => $version,
-    ];
-
+    // کلیه تراکنش‌های پایگاه داده و عملیات فیزیکی با ترنزکشن و ایزولاسیون کامل انجام می‌شود
+    $db->begin_transaction();
     try {
+        // ۱. ثبت در جدول Processes
+        $compParam = $companyId > 0 ? $companyId : null;
+        $st = $db->prepare(
+            "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        );
+        $st->bind_param('siisiiisssss', $cleanName, $catId, $compParam, $rel, $ownerId, $ownerPosId, $teamId, $desc, $audType, $audDept, $status, $version);
+        $st->execute();
+        $newProcId = (int)$db->insert_id;
+        $st->close();
+
+        // ۲. تولید و ذخیره فایل سند رسمی PDF (در صورت خطا اکسپشن صادر شده و ترنزکشن رول‌بک می‌شود)
+        $processMeta = [
+            'ID' => $newProcId,
+            'Name' => $cleanName,
+            'CatTitle' => $catTitle,
+            'CompanyName' => $companyName,
+            'RespTeam' => $respTeamName,
+            'OwnerPositionTitle' => $ownerPosTitle,
+            'AudienceLabel' => match ($audType) {
+                'department' => 'دپارتمان ' . ($audDept ?: 'مربوطه'),
+                'specific_positions' => 'سمت‌های تخصصی درگیر',
+                'specific_personnel' => 'پرسنل مشخص مرتبط',
+                default => 'کلیه پرسنل سازمان'
+            },
+            'Version' => $version,
+        ];
+
         generate_new_process_procedure_pdf($processMeta, $designData, $pdfFullPath);
-    } catch (Throwable $e) {
-        @file_put_contents($pdfFullPath . '.err.txt', $e->getMessage());
-    }
 
-    // ۳. ذخیره فایل متنی دستورالعمل (TXT)
-    $txtContent = "====================================================\n"
-        . "شناسنامه و دستورالعمل اجرایی فرآیند: {$cleanName}\n"
-        . "نسخه: {$version} | تاریخ تدوین: " . date('Y/m/d') . "\n"
-        . "دسته‌بندی: {$catTitle} | تیم مسئول: {$respTeamName}\n"
-        . "متولی سازمانی: {$ownerPosTitle}\n"
-        . "دامنه مخاطبان: {$processMeta['AudienceLabel']}\n"
-        . "====================================================\n\n"
-        . "۱. هدف و مأموریت فرآیند:\n" . ($designData['purpose'] ?? '') . "\n\n"
-        . "۲. دامنه شمول و پیش‌نیازها:\n" . ($designData['scope'] ?? '') . "\n\n"
-        . "۳. شاخص‌های کلیدی عملکرد و موافقت‌نامه سطح خدمت (SLA):\n" . ($designData['kpis_and_slas'] ?? '') . "\n\n"
-        . "۴. گام‌های اجرایی و گردش‌کار استاندارد:\n";
+        // ۳. ذخیره فایل متنی دستورالعمل (TXT)
+        $txtContent = "====================================================\n"
+            . "شناسنامه و دستورالعمل اجرایی فرآیند: {$cleanName}\n"
+            . "نسخه: {$version} | تاریخ تدوین: " . date('Y/m/d') . "\n"
+            . "دسته‌بندی: {$catTitle} | تیم مسئول: {$respTeamName}\n"
+            . "متولی سازمانی: {$ownerPosTitle}\n"
+            . "دامنه مخاطبان: {$processMeta['AudienceLabel']}\n"
+            . "====================================================\n\n"
+            . "۱. هدف و مأموریت فرآیند:\n" . ($designData['purpose'] ?? '') . "\n\n"
+            . "۲. دامنه شمول و پیش‌نیازها:\n" . ($designData['scope'] ?? '') . "\n\n"
+            . "۳. شاخص‌های کلیدی عملکرد و موافقت‌نامه سطح خدمت (SLA):\n" . ($designData['kpis_and_slas'] ?? '') . "\n\n"
+            . "۴. گام‌های اجرایی و گردش‌کار استاندارد:\n";
 
-    if (!empty($designData['steps']) && is_array($designData['steps'])) {
-        foreach ($designData['steps'] as $s) {
-            $num = $s['step'] ?? '';
-            $role = $s['role'] ?? 'مسئول';
-            $act = $s['action'] ?? '';
-            $notes = $s['notes'] ?? '';
-            $txtContent .= "  گام {$num} [{$role}]: {$act}\n";
-            if ($notes) {
-                $txtContent .= "         نکات و الزامات: {$notes}\n";
-            }
-        }
-    }
-
-    $txtContent .= "\n۵. ملاحظات مهندسی و ارزش‌افزوده هرمس:\n" . ($designData['optimization_notes'] ?? '') . "\n";
-    @file_put_contents($abs . DIRECTORY_SEPARATOR . 'دستورالعمل-فرآیند.txt', $txtContent);
-
-    // ۴. ثبت سابقه تغییرات در جدول Changes
-    $changeDesc = "طراحی، تدوین و انتشار اولیه فرآیند توسط دستیار مهندسی فرآیند هرمس (Hermes AI) بر پایه تحلیل مصاحبه سازمانی.";
-    $stCh = $db->prepare(
-        "INSERT INTO Changes (ProcessID, ChangeType, Description, OldVersion, NewVersion, AppliedByType, AppliedByID, Status, EffectiveDate)
-         VALUES (?, 'addition', ?, NULL, ?, 'team', ?, 'applied', CURDATE())"
-    );
-    $stCh->bind_param('issi', $newProcId, $changeDesc, $version, $teamId);
-    $stCh->execute();
-    $stCh->close();
-
-    // ۵. ارسال اعلان درون‌برنامه‌ای عمومی (سراسری) به همه کاربران و تیم‌ها
-    $notifTitle = "فرآیند جدید «{$cleanName}» تدوین و منتشر شد";
-    $notifBody = "فرآیند جدید «{$cleanName}» (نسخه {$version}) بر اساس مصاحبه و مهندسی استاندارد هرمس تصویب و مستندات آن در دسترس قرار گرفت.";
-    $notifLink = BASE_URL . '/processes/' . rawurlencode($catFolder) . '/' . rawurlencode($cleanName) . '/' . rawurlencode($pdfFileName);
-
-    $stN = $db->prepare(
-        "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, Priority, Type)
-         VALUES (?, ?, ?, 'hermes', 0, ?, 'normal', 'hermes')"
-    );
-    $stN->bind_param('sssi', $notifTitle, $notifBody, $notifLink, $newProcId);
-    $stN->execute();
-    $stN->close();
-
-    // ۶. ارسال اعلان اختصاصی درون‌برنامه‌ای و مخابره پیام بله به تک‌تک متولیان و مخاطبان اثرپذیر
-    require_once __DIR__ . '/bale.php';
-    if (function_exists('bale_get_process_recipients')) {
-        $recipientsInfo = bale_get_process_recipients($db, $newProcId);
-        if (!empty($recipientsInfo['all_recipients']) && is_array($recipientsInfo['all_recipients'])) {
-            $stPersNotif = $db->prepare(
-                "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type)
-                 VALUES (?, ?, ?, 'hermes', 0, ?, ?, 'high', 'hermes')"
-            );
-            foreach ($recipientsInfo['all_recipients'] as $rec) {
-                $pId = (int)($rec['personnel_id'] ?? 0);
-                if ($pId > 0) {
-                    $roleLabel = $rec['role_label'] ?? 'مخاطب اثرپذیر';
-                    $persTitle = "فرآیند جدید «{$cleanName}» (ارسال برای شما به عنوان {$roleLabel})";
-                    $persBody = "فرآیند جدید «{$cleanName}» تصویب و منتشر شد. با توجه به نقش یا وابستگی سازمانی شما ({$roleLabel})، مستندات رسمی پیوست را مطالعه فرمایید.";
-                    $stPersNotif->bind_param('sssii', $persTitle, $persBody, $notifLink, $newProcId, $pId);
-                    $stPersNotif->execute();
+        if (!empty($designData['steps']) && is_array($designData['steps'])) {
+            foreach ($designData['steps'] as $s) {
+                $num = $s['step'] ?? '';
+                $role = $s['role'] ?? 'مسئول';
+                $act = $s['action'] ?? '';
+                $notes = $s['notes'] ?? '';
+                $txtContent .= "  گام {$num} [{$role}]: {$act}\n";
+                if ($notes) {
+                    $txtContent .= "         نکات و الزامات: {$notes}\n";
                 }
             }
-            $stPersNotif->close();
         }
-    }
 
-    if (function_exists('bale_notify_process_change')) {
+        $txtContent .= "\n۵. ملاحظات مهندسی و ارزش‌افزوده هرمس:\n" . ($designData['optimization_notes'] ?? '') . "\n";
+        file_put_contents($txtFullPath, $txtContent);
+
+        // ۴. ثبت سابقه تغییرات در جدول Changes
+        $changeDesc = "طراحی، تدوین و انتشار اولیه فرآیند توسط دستیار مهندسی فرآیند هرمس (Hermes AI) بر پایه تحلیل مصاحبه سازمانی.";
+        $stCh = $db->prepare(
+            "INSERT INTO Changes (ProcessID, ChangeType, Description, OldVersion, NewVersion, AppliedByType, AppliedByID, Status, EffectiveDate)
+             VALUES (?, 'addition', ?, NULL, ?, 'team', ?, 'applied', CURDATE())"
+        );
+        $stCh->bind_param('issi', $newProcId, $changeDesc, $version, $teamId);
+        $stCh->execute();
+        $stCh->close();
+
+        // ۵. ارسال اعلان درون‌برنامه‌ای برای تیم مسئول فرآیند
+        $notifTitle = "فرآیند جدید «{$cleanName}» تدوین و منتشر شد";
+        $notifBody = "فرآیند جدید «{$cleanName}» (نسخه {$version}) بر اساس مصاحبه و مهندسی استاندارد هرمس تصویب و مستندات آن در دسترس قرار گرفت.";
+        $notifLink = fm_url($rel . $pdfFileName);
+
+        $stN = $db->prepare(
+            "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetTeamID, Priority, Type)
+             VALUES (?, ?, ?, 'hermes', 0, ?, ?, 'normal', 'hermes')"
+        );
+        $stN->bind_param('sssii', $notifTitle, $notifBody, $notifLink, $newProcId, $teamId);
+        $stN->execute();
+        $stN->close();
+
+        // ۶. ارسال اعلان اختصاصی درون‌برنامه‌ای برای متولیان و مخاطبان اثرپذیر
+        require_once __DIR__ . '/bale.php';
+        if (function_exists('bale_get_process_recipients')) {
+            $recipientsInfo = bale_get_process_recipients($db, $newProcId);
+            if (!empty($recipientsInfo['all_recipients']) && is_array($recipientsInfo['all_recipients'])) {
+                $stPersNotif = $db->prepare(
+                    "INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type)
+                     VALUES (?, ?, ?, 'hermes', 0, ?, ?, 'high', 'hermes')"
+                );
+                foreach ($recipientsInfo['all_recipients'] as $rec) {
+                    $pId = (int)($rec['personnel_id'] ?? 0);
+                    if ($pId > 0) {
+                        $roleLabel = $rec['role_label'] ?? 'مخاطب اثرپذیر';
+                        $persTitle = "فرآیند جدید «{$cleanName}» (ارسال برای شما به عنوان {$roleLabel})";
+                        $persBody = "فرآیند جدید «{$cleanName}» تصویب و منتشر شد. با توجه به نقش یا وابستگی سازمانی شما ({$roleLabel})، مستندات رسمی پیوست را مطالعه فرمایید.";
+                        $stPersNotif->bind_param('sssii', $persTitle, $persBody, $notifLink, $newProcId, $pId);
+                        $stPersNotif->execute();
+                    }
+                }
+                $stPersNotif->close();
+            }
+        }
+
+        // ۷. صف‌بندی ارسال پیام در بله در صف پس‌زمینه (Async background worker queue) به جای ارسال مسدودکننده
         $changeSubject = "تدوین و انتشار فرآیند جدید «{$cleanName}» (نسخه {$version})";
         $changeDetails = "فرآیند جدید «{$cleanName}» بر اساس مصاحبه سازمانی و مهندسی استاندارد هرمس تدوین و تصویب گردید. شناسنامه، متولی، شاخص‌های سطح خدمت (SLA) و گام‌های اجرایی در سند رسمی پیوست به این پیام درج شده است.";
-        try {
-            bale_notify_process_change(
-                $db,
-                $newProcId,
-                $changeSubject,
-                $changeDetails,
-                $notifLink,
-                $teamId,
-                null,
-                $pdfFullPath
-            );
-        } catch (Throwable $e) {
-            error_log("Bale process notification error: " . $e->getMessage());
-        }
+        hermes_dispatch_async_bale_broadcast($db, $newProcId, $teamId, [
+            'subject' => $changeSubject,
+            'details' => $changeDetails,
+            'link' => $notifLink,
+            'pdf_path' => $pdfFullPath,
+        ]);
+
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollback();
+        if (file_exists($pdfFullPath)) @unlink($pdfFullPath);
+        if (file_exists($txtFullPath)) @unlink($txtFullPath);
+        error_log("Failed to create process from design: " . $e->getMessage());
+        return ['success' => false, 'error' => 'خطا در ثبت و انتشار فرآیند: ' . $e->getMessage()];
     }
 
     return [
