@@ -4,6 +4,7 @@
  */
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/icons.php';
+require_once __DIR__ . '/access.php';
 
 /**
  * اعتبارسنجی امن پیوندهای برنامه جهت جلوگیری از حملات XSS و Open Redirect
@@ -628,6 +629,11 @@ function app_footer(): void
 </body>
 </html>
 <?php
+}
+
+function team_footer(): void
+{
+    app_footer();
 }
 
 /**

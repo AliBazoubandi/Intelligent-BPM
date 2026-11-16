@@ -91,7 +91,11 @@ if (isset($_GET['ajax_status'])) {
 
 // شروع آنی و غیراسنکرون کار در پس‌زمینه (تنها از طریق POST امن با بررسی توکن CSRF)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST['action'] === 'start_async')) {
-    csrf_check();
+    if (!csrf_check($_POST['csrf'] ?? null)) {
+        flash_set('error', 'اعتبار صفحه منقضی شده است.');
+        header('Location: revision.php?imp=' . $impId);
+        exit;
+    }
     $stT = $db->prepare("SELECT ID FROM HermesTasks WHERE TaskType = 'revision' AND RefID = ? AND Status IN ('queued', 'running') ORDER BY ID DESC LIMIT 1");
     $stT->bind_param('i', $impId);
     $stT->execute();
@@ -114,6 +118,15 @@ if (isset($_GET['ajax_draft'])) {
 
 $notice = '';
 $error = '';
+
+$flash = flash_get();
+if ($flash) {
+    if ($flash['type'] === 'ok') {
+        $notice = $flash['message'];
+    } else {
+        $error = $flash['message'];
+    }
+}
 
 /* ---------- پردازش درخواست‌ها ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -248,6 +261,13 @@ team_header($id, 'discussion', $pageTitle);
     <a href="discussion.php?imp=<?= (int)$imp['ID'] ?>">گفتگوی بهبود #<?= (int)$imp['ID'] ?></a> ←
     <span>بازنویسی مستند با هرمس (Async)</span>
 </div>
+
+<?php if ($notice): ?>
+    <div class="alert alert-success" style="font-size:13.5px;padding:14px;border-radius:12px;margin-bottom:16px">
+        <?= app_icon('check', '', 18) ?>
+        <span><?= e($notice) ?></span>
+    </div>
+<?php endif; ?>
 
 <?php if ($error): ?>
     <div class="alert alert-error" style="font-size:13.5px;padding:14px;border-radius:12px;margin-bottom:16px">

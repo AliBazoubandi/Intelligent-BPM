@@ -10,6 +10,14 @@ require_once __DIR__ . '/../inc/bale.php';
 $id = require_area('team');
 $db = app_db();
 
+if (!team_is_admin($id)) {
+    http_response_code(403);
+    team_header($id, 'basics', 'دسترسی غیرمجاز');
+    echo '<main class="content-box"><div class="callout callout-danger">شما مجوز دسترسی به این بخش را ندارید. این عملیات مختص تیم‌های مدیر ارشد است.</div></main>';
+    team_footer();
+    exit;
+}
+
 $notice = '';
 $error = '';
 

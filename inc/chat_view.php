@@ -60,9 +60,15 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                     $chatHistory[] = ['role' => 'assistant', 'content' => $hr['AiResponse']];
                 }
 
-                // اجرای موتور RAG هرمس
+                // اجرای موتور RAG هرمس با احراز هویت و تفکیک دسترسی چندمستأجری
                 @set_time_limit(120);
-                $ragResult = hermes_process_rag_query($db, $query, $chatHistory);
+                $callerContext = [
+                    'area' => $area,
+                    'id' => (int)($id['id'] ?? 0),
+                    'company_id' => !empty($id['company_id']) ? (int)$id['company_id'] : null,
+                    'is_admin' => !empty($id['is_admin']) ? 1 : 0,
+                ];
+                $ragResult = hermes_process_rag_query($db, $query, $chatHistory, $callerContext);
 
                 if ($ragResult['success']) {
                     $jsonSources = json_encode($ragResult['related_processes'], JSON_UNESCAPED_UNICODE);

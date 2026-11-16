@@ -530,6 +530,14 @@ $rawInterview = $_SESSION['hermes_new_process_raw'] ?? '';
             </label>
         </div>
 
+        <?php
+        $isLocalEngine = (!defined('TRANSCRIBE_ENGINE') || TRANSCRIBE_ENGINE !== 'google');
+        ?>
+        <div class="audio-engine-hint" style="font-size:12px;color:<?= $isLocalEngine ? '#166534' : '#b45309' ?>;background:<?= $isLocalEngine ? 'rgba(22,101,52,0.06)' : 'rgba(180,83,9,0.08)' ?>;padding:6px 12px;border-radius:8px;margin-bottom:12px;display:inline-flex;align-items:center;gap:6px">
+            <?= app_icon($isLocalEngine ? 'check' : 'alert', '', 14) ?>
+            <span><?= $isLocalEngine ? 'پردازش صوت روی سرور داخلی انجام می‌شود' : 'هشدار: صوت برای تبدیل به متن به سرویس ابری گوگل ارسال می‌شود' ?></span>
+        </div>
+
         <!-- پیام وضعیت ضبط یا تبدیل صوت -->
         <div id="audioStatusBox" style="display:none;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:13px"></div>
 

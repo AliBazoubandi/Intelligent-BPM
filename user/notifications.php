@@ -78,22 +78,27 @@ if (isset($_GET['check_unread'])) {
 /* ---------- خروجی AJAX برای علامت‌گذاری اعلان به عنوان خوانده‌شده ---------- */
 if (isset($_REQUEST['mark_read_ajax'])) {
     header('Content-Type: application/json; charset=utf-8');
-    $id = current_identity('user');
-    if (!$id || empty($id['id'])) {
-        echo json_encode(['ok' => false]);
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
         exit;
     }
-    // احراز هویت توکن CSRF در صورت ارسال از طریق POST
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_check($_POST['csrf'] ?? null)) {
+    if (!csrf_check($_POST['csrf'] ?? null)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'CSRF error']);
+        exit;
+    }
+    $id = current_identity('user');
+    if (!$id || empty($id['id'])) {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'Unauthorized']);
         exit;
     }
 
     $db = app_db();
     $uid = (int)$id['id'];
     $compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
-    $notifId = (int)($_REQUEST['id'] ?? 0);
+    $notifId = (int)($_POST['id'] ?? 0);
     if ($notifId > 0) {
         notification_mark_read($db, 'user', $uid, $compId, $notifId);
     }
