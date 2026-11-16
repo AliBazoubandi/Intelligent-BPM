@@ -189,10 +189,15 @@ if ($impId > 0) {
                         <span>هرمس در حال بازنویسی در پس‌زمینه... (مشاهده وضعیت)</span>
                     </a>
                 <?php elseif ($isOwnerTeam && $imp['Status'] !== 'implemented'): ?>
-                    <a class="btn btn-brand btn-sm" href="revision.php?imp=<?= $impId ?>&action=start_async" style="display:inline-flex;align-items:center;gap:6px">
-                        <?= app_icon('bot', '', 15) ?>
-                        <span>اعمال بهبود و بازنویسی سند با هرمس</span>
-                    </a>
+                    <form method="post" action="revision.php?imp=<?= $impId ?>" style="margin:0;display:inline-block">
+                        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                        <input type="hidden" name="action" value="start_async">
+                        <input type="hidden" name="imp_id" value="<?= $impId ?>">
+                        <button type="submit" class="btn btn-brand btn-sm" style="display:inline-flex;align-items:center;gap:6px">
+                            <?= app_icon('bot', '', 15) ?>
+                            <span>اعمال بهبود و بازنویسی سند با هرمس</span>
+                        </button>
+                    </form>
                 <?php elseif ($imp['Status'] === 'implemented'): ?>
                     <span class="badge" style="background:#dcfce7;color:#166534;font-size:12px;padding:6px 12px;border-radius:14px;display:inline-flex;align-items:center;gap:5px">
                         <?= app_icon('check', '', 13) ?>

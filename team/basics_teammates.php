@@ -10,7 +10,6 @@ $tid = (int)$id['id'];
 
 $error = '';
 $notice = '';
-$error = '';
 $needsConfirm = false;
 $confirmCode = '';
 
@@ -34,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $p = $st->get_result()->fetch_assoc(); $st->close();
             if (!$p) $error = 'پرسنلی با این کد یافت نشد.';
             elseif ((int)$p['TeamID'] === $tid) $error = 'این نفر عضو همین تیم است.';
-            elseif ($p['TeamID'] !== null && empty($_POST['confirm_transfer'])) {
+            elseif ($p['TeamID'] !== null && !team_is_admin($id)) {
+                $error = 'این کاربر عضو تیم «' . ($p['TeamName'] ?? 'دیگر') . '» است. انتقال اعضای سایر تیم‌ها فقط توسط تیم مدیر ارشد مجاز است.';
+            } elseif ($p['TeamID'] !== null && empty($_POST['confirm_transfer'])) {
                 $error = 'این کاربر عضو تیم «' . ($p['TeamName'] ?? 'دیگر') . '» است. برای تأیید انتقال به این تیم، مجدداً دکمه افزودن را بزنید.';
                 $needsConfirm = true;
                 $confirmCode = $code;

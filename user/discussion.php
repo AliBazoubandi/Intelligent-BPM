@@ -47,20 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: improvements.php');
             exit;
         } elseif ($action === 'retry_hermes') {
-            $st = $db->prepare(
-                "UPDATE Improvements 
-                 SET AiVerdict = 'pending', 
-                     AiAnalysis = NULL, 
-                     AiEvaluatedAt = NULL, 
-                     CreatedAt = NOW(), 
-                     UpdatedAt = NOW() 
-                 WHERE ID = ?"
-            );
-            $st->bind_param('i', $impId);
-            $st->execute();
-            $st->close();
-
-            hermes_dispatch_async_eval($impId);
+            hermes_retry_improvement_evaluation($db, $impId);
             flash_set('ok', 'درخواست ارزیابی مجدد هرمس با موفقیت ارسال شد.');
             header('Location: discussion.php?imp=' . $impId);
             exit;
@@ -150,7 +137,7 @@ if ($impId > 0) {
     while ($r = $res->fetch_assoc()) $msgs[] = $r;
     $st->close();
 
-    $activeTaskSt = $db->prepare("SELECT ID, Status FROM HermesTasks WHERE RefID = ? AND TaskType = 'discussion_mention' AND Status IN ('queued', 'running', 'pending') ORDER BY ID DESC LIMIT 1");
+    $activeTaskSt = $db->prepare("SELECT ID, Status FROM HermesTasks WHERE RefID = ? AND TaskType = 'discussion_mention' AND Status IN ('queued', 'running') ORDER BY ID DESC LIMIT 1");
     $activeTaskSt->bind_param('i', $impId);
     $activeTaskSt->execute();
     $activeHermesTask = $activeTaskSt->get_result()->fetch_assoc();
@@ -295,13 +282,19 @@ if ($impId > 0) {
 $st = $db->prepare(
     "SELECT i.ID, i.Title, i.Status, i.CreatedAt, i.AiVerdict, p.Name AS ProcName, p.ID AS Pid,
             pt.TeamName AS RespTeamName,
-            (SELECT COUNT(*) FROM Responses r WHERE r.RefType='improvement' AND r.RefID=i.ID) AS Replies,
-            (SELECT MAX(r3.CreatedAt) FROM Responses r3 WHERE r3.RefType='improvement' AND r3.RefID=i.ID) AS LastReplyAt
+            COALESCE(rs.Replies, 0) AS Replies,
+            rs.LastReplyAt
      FROM Improvements i
      JOIN Processes p ON p.ID = i.ProcessID
      LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
+     LEFT JOIN (
+         SELECT RefID, COUNT(*) AS Replies, MAX(CreatedAt) AS LastReplyAt, MAX(ID) AS MaxResponseID
+         FROM Responses
+         WHERE RefType = 'improvement'
+         GROUP BY RefID
+     ) rs ON rs.RefID = i.ID
      WHERE i.requester_type = 'user' AND i.requester_id = ?
-     ORDER BY (SELECT MAX(r2.ID) FROM Responses r2 WHERE r2.RefType='improvement' AND r2.RefID=i.ID) DESC, i.ID DESC"
+     ORDER BY rs.MaxResponseID DESC, i.ID DESC"
 );
 $st->bind_param('i', $uid);
 $st->execute();

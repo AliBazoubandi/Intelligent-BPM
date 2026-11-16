@@ -198,7 +198,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                             <?php endif; ?>
 
                             <div class="chat-meta">
-                                <span>🤖 هرمس (پاسخ مستند بر اساس فرآیندها)</span>
+                                <span><?= app_icon('bot', '', 14) ?> هرمس (پاسخ مستند بر اساس فرآیندها)</span>
                                 <span><?= e(fmt_date($chat['CreatedAt'])) ?></span>
                             </div>
                         </div>
@@ -222,7 +222,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
             </form>
 
             <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 4px 0;font-size:11.5px;color:var(--muted)">
-                <span>💡 کلید Enter برای ارسال، و Shift + Enter برای خط جدید است.</span>
+                <span><?= app_icon('info', '', 14) ?> کلید Enter برای ارسال، و Shift + Enter برای خط جدید است.</span>
                 <?php if (!empty($chats)): ?>
                     <form method="post" action="ask.php" onsubmit="return confirm('آیا مایل به پاک کردن تاریخچه این گفتگو هستید؟');" style="margin:0">
                         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
@@ -341,8 +341,9 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                 if (data.related_processes && data.related_processes.length > 0) {
                     sourcesHtml = '<div class="chat-sources"><span style="color:var(--muted);font-size:11.5px">فرآیندهای مرتبط:</span>';
                     data.related_processes.forEach(p => {
+                        const pid = parseInt(p.id, 10) || 0;
                         sourcesHtml += `
-                            <a class="chat-source-tag" href="${processLinkPrefix + p.id}" title="مشاهده فرآیند ${escapeHtml(p.name)}">
+                            <a class="chat-source-tag" href="${processLinkPrefix + pid}" title="مشاهده فرآیند ${escapeHtml(p.name)}">
                                 ⚙ <span>${escapeHtml(p.name)}</span>
                                 <span style="opacity:.7;font-size:10.5px">(${escapeHtml(p.cat)})</span>
                             </a>
@@ -359,8 +360,8 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                         <div>${escapeHtml(data.answer).replace(/\n/g, '<br>')}</div>
                         ${sourcesHtml}
                         <div class="chat-meta">
-                            <span>🤖 هرمس (پاسخ مستند بر اساس فرآیندها)</span>
-                            <span>${data.created_at || 'هم‌اکنون'}</span>
+                            <span>هرمس (پاسخ مستند بر اساس فرآیندها)</span>
+                            <span>${escapeHtml(data.created_at || 'هم‌اکنون')}</span>
                         </div>
                     </div>
                 `;
@@ -376,7 +377,7 @@ function handle_and_render_process_chat(string $area, array $id, string $process
                 const errRow = document.createElement('div');
                 errRow.className = 'chat-row chat-row-bot';
                 errRow.innerHTML = `
-                    <div class="chat-avatar chat-avatar-bot">⚠️</div>
+                    <div class="chat-avatar chat-avatar-bot"><span style="color:#ef4444;font-size:16px;font-weight:bold">!</span></div>
                     <div class="chat-bubble chat-bubble-bot" style="border-color:#f87171;background:#fef2f2">
                         <div style="color:#b91c1c">خطا در برقراری ارتباط با سرویس هرمس. لطفاً چند لحظه بعد دوباره تلاش فرمایید.</div>
                     </div>

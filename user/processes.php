@@ -10,6 +10,8 @@ $db = app_db();
 
 $categories = active_categories($db);
 
+$userCompanyId = (int)($_SESSION['user']['company_id'] ?? 0);
+
 /* ---------- نمای جزئیات ---------- */
 $procId = (int)($_GET['id'] ?? 0);
 if ($procId > 0) {
@@ -21,9 +23,9 @@ if ($procId > 0) {
          LEFT JOIN Companies c ON c.ID = p.CompanyID
          LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
          LEFT JOIN Personnel per ON per.ID = p.OwnerPersonnelID
-         WHERE p.ID = ?"
+         WHERE p.ID = ? AND p.Status = 'active' AND (p.CompanyID IS NULL OR p.CompanyID = ?)"
     );
-    $st->bind_param('i', $procId);
+    $st->bind_param('ii', $procId, $userCompanyId);
     $st->execute();
     $proc = $st->get_result()->fetch_assoc();
     $st->close();
@@ -79,7 +81,7 @@ if ($procId > 0) {
     <div class="card">
         <h2>فایل‌های فرآیند</h2>
         <?php if (!$files): ?>
-            <div class="empty"><span class="ico">📄</span><p>فایلی برای این فرآیند در دایرکتوری فرآیندها قرار ندارد.</p></div>
+            <div class="empty"><span class="ico"><?= app_icon('file', '', 28) ?></span><p>فایلی برای این فرآیند در دایرکتوری فرآیندها قرار ندارد.</p></div>
         <?php else: ?>
             <ul class="file-list">
                 <?php foreach ($files as $f):
@@ -87,7 +89,7 @@ if ($procId > 0) {
                     $isHermesDoc = str_starts_with($f['name'], 'دستورالعمل-فرآیند');
                 ?>
                     <li style="<?= $isHermesDoc ? 'background:#f0fdf4;border-right:3px solid #16a34a;padding-right:10px;border-radius:6px;' : '' ?>">
-                        <span><?= str_ends_with($f['name'], '.pdf') ? '📕' : '📄' ?></span>
+                        <span><?= app_icon(str_ends_with($f['name'], '.pdf') ? 'pdf' : 'file', '', 18) ?></span>
                         <a href="<?= e($url) ?>" target="_blank" rel="noopener" style="font-weight:<?= $isHermesDoc ? 'bold' : 'normal' ?>"><?= e($f['name']) ?></a>
                         <?php if ($isHermesDoc): ?>
                             <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px">دستورالعمل مصوب هرمس</span>
@@ -105,18 +107,19 @@ if ($procId > 0) {
 $catId = (int)($_GET['cat'] ?? 0);
 
 $sql = "SELECT p.ID, p.Name, p.Version, p.Status, p.UpdatedAt, p.Description, cat.Title AS CatTitle
-        FROM Processes p JOIN ProcessCategories cat ON cat.ID = p.CategoryID";
-$params = [];
-$types = '';
+        FROM Processes p JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+        WHERE p.Status = 'active' AND (p.CompanyID IS NULL OR p.CompanyID = ?)";
+$params = [$userCompanyId];
+$types = 'i';
 if ($catId > 0) {
-    $sql .= ' WHERE p.CategoryID = ?';
+    $sql .= ' AND p.CategoryID = ?';
     $params[] = $catId;
-    $types = 'i';
+    $types .= 'i';
 }
 $sql .= ' ORDER BY cat.SortOrder, p.Name';
 
 $st = $db->prepare($sql);
-if ($types !== '') $st->bind_param($types, ...$params);
+$st->bind_param($types, ...$params);
 $st->execute();
 $procs = [];
 $res = $st->get_result();
@@ -125,8 +128,12 @@ $st->close();
 
 // شمارش فرآیندهای هر دسته
 $cnt = [];
-$res = $db->query('SELECT CategoryID, COUNT(*) c FROM Processes GROUP BY CategoryID');
+$stCnt = $db->prepare('SELECT CategoryID, COUNT(*) c FROM Processes WHERE Status = "active" AND (CompanyID IS NULL OR CompanyID = ?) GROUP BY CategoryID');
+$stCnt->bind_param('i', $userCompanyId);
+$stCnt->execute();
+$res = $stCnt->get_result();
 while ($r = $res->fetch_assoc()) $cnt[(int)$r['CategoryID']] = (int)$r['c'];
+$stCnt->close();
 ?>
 <?php user_header($id, 'processes', 'پیمایش فرآیندها'); ?>
 

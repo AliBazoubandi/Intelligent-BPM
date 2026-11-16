@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = (string)($_POST['action'] ?? '');
 
         if ($action === 'hermes_queue') {
-            hermes_dispatch_async_eval(0);
+            hermes_dispatch_queue();
             flash_set('ok', 'صف ارزیابی هوشمند هرمس در پس‌زمینه فعال شد. موارد معلق به زودی ارزیابی خواهند شد.');
             header('Location: ' . $redirectUrl);
             exit;
@@ -225,10 +225,15 @@ if ($stCount) {
                                     <span>در حال بازنویسی...</span>
                                 </a>
                             <?php else: ?>
-                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>&action=start_async" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
-                                    <?= app_icon('bot', '', 12) ?>
-                                    <span>بازنویسی سند</span>
-                                </a>
+                                <form method="post" action="revision.php?imp=<?= (int)$m['ID'] ?>" style="margin:0;display:inline-block">
+                                    <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                                    <input type="hidden" name="action" value="start_async">
+                                    <input type="hidden" name="imp_id" value="<?= (int)$m['ID'] ?>">
+                                    <button type="submit" class="btn btn-brand btn-xs" title="اعمال بهبود و بازنویسی سند با هرمس" style="display:inline-flex;align-items:center;gap:4px">
+                                        <?= app_icon('bot', '', 12) ?>
+                                        <span>بازنویسی سند</span>
+                                    </button>
+                                </form>
                             <?php endif; ?>
                         </div>
                         <form method="post" class="inline-form">

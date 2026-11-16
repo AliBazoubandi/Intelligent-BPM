@@ -19,7 +19,52 @@ if ($impId <= 0) {
     exit;
 }
 
-/* ---------- بررسی وضعیت تسک با AJAX ---------- */
+// بررسی دسترسی تیم به فرآیند (قبل از هرگونه پردازش AJAX یا عملیات بازنویسی)
+$st = $db->prepare(
+    "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
+            p.FilePath, p.ResponsibleTeamID, cat.Title AS CatTitle, cat.FolderName,
+            pt.TeamName AS RespTeamName,
+            u.Name AS ReqName, u.Family AS ReqFamily
+     FROM Improvements i
+     JOIN Processes p ON p.ID = i.ProcessID
+     JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+     LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
+     LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type = 'user'
+     WHERE i.ID = ?"
+);
+$st->bind_param('i', $impId);
+$st->execute();
+$imp = $st->get_result()->fetch_assoc();
+$st->close();
+
+if (!$imp) {
+    if (isset($_GET['ajax_status']) || isset($_GET['ajax_draft'])) {
+        http_response_code(404);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'not_found'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    team_header($id, 'discussion', 'پیشنهاد یافت نشد');
+    echo '<div class="card"><div class="empty"><span class="ico">' . app_icon('search', '', 28) . '</span><p>پیشنهاد بهبود مورد نظر یافت نشد.</p></div></div>';
+    app_footer();
+    exit;
+}
+
+$isOwner = ((int)$imp['ResponsibleTeamID'] === $tid);
+if (!$isOwner) {
+    if (isset($_GET['ajax_status']) || isset($_GET['ajax_draft'])) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'forbidden'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    team_header($id, 'discussion', 'عدم دسترسی');
+    echo '<div class="card"><div class="alert alert-error">فقط تیم مسئول این فرآیند («' . e($imp['RespTeamName'] ?? '—') . '») اجازه بهینه‌سازی و بازنویسی مستندات را دارد.</div></div>';
+    app_footer();
+    exit;
+}
+
+/* ---------- بررسی وضعیت تسک با AJAX (پس از احراز مالکیت) ---------- */
 if (isset($_GET['ajax_status'])) {
     header('Content-Type: application/json; charset=utf-8');
     $st = $db->prepare("SELECT * FROM HermesTasks WHERE TaskType = 'revision' AND RefID = ? ORDER BY ID DESC LIMIT 1");
@@ -44,41 +89,9 @@ if (isset($_GET['ajax_status'])) {
     exit;
 }
 
-// بررسی دسترسی تیم به فرآیند
-$st = $db->prepare(
-    "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
-            p.FilePath, p.ResponsibleTeamID, cat.Title AS CatTitle, cat.FolderName,
-            pt.TeamName AS RespTeamName,
-            u.Name AS ReqName, u.Family AS ReqFamily
-     FROM Improvements i
-     JOIN Processes p ON p.ID = i.ProcessID
-     JOIN ProcessCategories cat ON cat.ID = p.CategoryID
-     LEFT JOIN ProcessTeams pt ON pt.ID = p.ResponsibleTeamID
-     LEFT JOIN Personnel u ON u.ID = i.requester_id AND i.requester_type = 'user'
-     WHERE i.ID = ?"
-);
-$st->bind_param('i', $impId);
-$st->execute();
-$imp = $st->get_result()->fetch_assoc();
-$st->close();
-
-if (!$imp) {
-    team_header($id, 'discussion', 'پیشنهاد یافت نشد');
-    echo '<div class="card"><div class="empty"><span class="ico">🔍</span><p>پیشنهاد بهبود مورد نظر یافت نشد.</p></div></div>';
-    app_footer();
-    exit;
-}
-
-$isOwner = ((int)$imp['ResponsibleTeamID'] === $tid);
-if (!$isOwner) {
-    team_header($id, 'discussion', 'عدم دسترسی');
-    echo '<div class="card"><div class="alert alert-error">فقط تیم مسئول این فرآیند («' . e($imp['RespTeamName'] ?? '—') . '») اجازه بهینه‌سازی و بازنویسی مستندات را دارد.</div></div>';
-    app_footer();
-    exit;
-}
-
-// شروع آنی و غیراسنکرون کار در پس‌زمینه بدون هیچ‌گونه معطلی کاربر در مرورگر
-if ((isset($_GET['action']) && $_GET['action'] === 'start_async') || (isset($_POST['action']) && $_POST['action'] === 'start_async')) {
+// شروع آنی و غیراسنکرون کار در پس‌زمینه (تنها از طریق POST امن با بررسی توکن CSRF)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST['action'] === 'start_async')) {
+    csrf_check();
     $stT = $db->prepare("SELECT ID FROM HermesTasks WHERE TaskType = 'revision' AND RefID = ? AND Status IN ('queued', 'running') ORDER BY ID DESC LIMIT 1");
     $stT->bind_param('i', $impId);
     $stT->execute();
@@ -143,11 +156,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ];
 
         if ($action === 'preview_pdf') {
-            // پیش‌نمایش آنی فایل PDF بدون ذخیره نهایی
+            // پیش‌نمایش آنی فایل PDF بدون ذخیره نهایی با نگاشت دقیق متادیتای فرآیند
             try {
-                $pdfBinary = generate_process_procedure_pdf($imp, $revisionData);
+                $processPdfData = [
+                    'ID' => (int)$imp['Pid'],
+                    'Name' => $imp['ProcName'],
+                    'ProcName' => $imp['ProcName'],
+                    'CatTitle' => $imp['CatTitle'],
+                    'RespTeam' => $imp['RespTeamName'] ?? 'تیم فرآیند',
+                    'CompanyName' => defined('APP_NAME') ? APP_NAME : 'سازمان',
+                    'Version' => $imp['CurrentVersion'],
+                ];
+                $stOwner = $db->prepare("SELECT p.Name, p.Family, op.Title AS PosTitle 
+                                         FROM Processes proc
+                                         LEFT JOIN Personnel p ON p.ID = proc.OwnerPersonnelID
+                                         LEFT JOIN OrgPositions op ON op.ID = proc.OwnerPositionID
+                                         WHERE proc.ID = ?");
+                if ($stOwner) {
+                    $stOwner->bind_param('i', $imp['Pid']);
+                    $stOwner->execute();
+                    $oRow = $stOwner->get_result()->fetch_assoc();
+                    $stOwner->close();
+                    if ($oRow) {
+                        $fn = trim(($oRow['Name'] ?? '') . ' ' . ($oRow['Family'] ?? ''));
+                        $processPdfData['OwnerName'] = $fn ?: ($oRow['PosTitle'] ?? '');
+                    }
+                }
+
+                $pdfBinary = generate_process_procedure_pdf($processPdfData, $revisionData);
+                $cleanVer = preg_replace('/[^0-9A-Za-z.\-]/', '', $newVersion) ?: '1.0';
+                $asciiFilename = 'preview-procedure-v' . $cleanVer . '.pdf';
                 header('Content-Type: application/pdf');
-                header('Content-Disposition: inline; filename="preview-procedure-v' . $newVersion . '.pdf"');
+                header('Content-Disposition: inline; filename="' . $asciiFilename . '"; filename*=UTF-8\'\'' . rawurlencode($asciiFilename));
                 header('Content-Length: ' . strlen($pdfBinary));
                 echo $pdfBinary;
                 exit;

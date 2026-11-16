@@ -166,6 +166,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $chStatus = (string)($_POST['status'] ?? 'pending');
             if (!in_array($chStatus, ['pending','approved','applied','rejected'], true)) $chStatus = 'pending';
             $impId = (int)($_POST['improvement_id'] ?? 0) ?: null;
+            if ($impId !== null) {
+                $stImp = $db->prepare("SELECT ID FROM Improvements WHERE ID = ? AND ProcessID = ?");
+                $stImp->bind_param('ii', $impId, $procId);
+                $stImp->execute();
+                $impOk = (bool)$stImp->get_result()->fetch_assoc();
+                $stImp->close();
+                if (!$impOk) {
+                    $impId = null;
+                }
+            }
             if ($chDesc === '') {
                 flash_set('error', 'شرح تغییر را وارد کنید.');
             } else {
@@ -342,7 +352,7 @@ $csrf = csrf_token();
         }
     }
     if (!$files): ?>
-        <div class="empty"><span class="ico">📄</span><p>هنوز سندی بارگذاری نشده است.</p></div>
+        <div class="empty"><span class="ico"><?= app_icon('file', '', 28) ?></span><p>هنوز سندی بارگذاری نشده است.</p></div>
     <?php else: ?>
         <ul class="file-list">
             <?php foreach ($files as $f):
@@ -350,7 +360,7 @@ $csrf = csrf_token();
                 $isHermesDoc = str_starts_with($f['name'], 'دستورالعمل-فرآیند');
             ?>
                 <li style="<?= $isHermesDoc ? 'background:#f0fdf4;border-right:3px solid #16a34a;padding-right:10px;border-radius:6px;' : '' ?>">
-                    <span><?= str_ends_with($f['name'], '.pdf') ? '📕' : '📄' ?></span>
+                    <span><?= app_icon(str_ends_with($f['name'], '.pdf') ? 'pdf' : 'file', '', 18) ?></span>
                     <a href="<?= e($url) ?>" target="_blank" rel="noopener" style="font-weight:<?= $isHermesDoc ? 'bold' : 'normal' ?>"><?= e($f['name']) ?></a>
                     <?php if ($isHermesDoc): ?>
                         <span class="badge" style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px">
@@ -789,10 +799,15 @@ $currentAudType = $proc['AudienceType'] ?? 'all_company';
                                     <span>در حال بازنویسی...</span>
                                 </a>
                             <?php elseif ($isOwnerTeam): ?>
-                                <a class="btn btn-brand btn-xs" href="revision.php?imp=<?= (int)$m['ID'] ?>&action=start_async" style="display:inline-flex;align-items:center;gap:4px">
-                                    <?= app_icon('bot', '', 12) ?>
-                                    <span>بازنویسی سند</span>
-                                </a>
+                                <form method="post" action="revision.php?imp=<?= (int)$m['ID'] ?>" style="margin:0;display:inline-block">
+                                    <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                                    <input type="hidden" name="action" value="start_async">
+                                    <input type="hidden" name="imp_id" value="<?= (int)$m['ID'] ?>">
+                                    <button type="submit" class="btn btn-brand btn-xs" style="display:inline-flex;align-items:center;gap:4px">
+                                        <?= app_icon('bot', '', 12) ?>
+                                        <span>بازنویسی سند</span>
+                                    </button>
+                                </form>
                             <?php endif; ?>
                         </div>
                     </td>

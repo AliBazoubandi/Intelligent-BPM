@@ -63,7 +63,7 @@ $st->close();
                     <th>درخواست‌کننده</th>
                     <th>وضعیت</th>
                     <th>تاریخ</th>
-                    <th style="width: 120px; text-align: center;">عملیات</th>
+                    <th style="width: 140px; text-align: center; white-space: nowrap;">عملیات</th>
                 </tr>
             </thead>
             <tbody>
@@ -85,9 +85,9 @@ $st->close();
                     <td><?= e(trim((string)$m['ReqName'] . ' ' . (string)$m['ReqFamily']) ?: '—') ?></td>
                     <td><span class="badge badge-<?= e($m['Status']) ?>"><?= status_label($m['Status']) ?></span></td>
                     <td><?= e(fmt_date_short($m['CreatedAt'])) ?></td>
-                    <td style="text-align: center;">
-                        <a class="btn btn-sm btn-brand" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;font-size:12px">
-                            <?= app_icon('discussion', '', 13) ?>
+                    <td style="text-align: center; white-space: nowrap;">
+                        <a class="btn btn-sm btn-brand" href="discussion.php?imp=<?= (int)$m['ID'] ?>" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 14px;font-size:12.5px;white-space:nowrap">
+                            <?= app_icon('discussion', '', 14) ?>
                             <span>گفتگو / بررسی</span>
                         </a>
                     </td>

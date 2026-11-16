@@ -52,8 +52,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newPosId = (int)$db->insert_id;
             $st->close();
 
-            // در صورت انتخاب پرسنل، سمت سازمانی کاربر نیز به‌روزرسانی شود
+            // در صورت انتخاب پرسنل، سمت قبلی شخص تخلیه و سمت جدید منتسب می‌شود
             if ($persId) {
+                $stClear = $db->prepare("UPDATE OrgPositions SET CurrentPersonnelID = NULL WHERE CurrentPersonnelID = ? AND ID != ?");
+                $stClear->bind_param('ii', $persId, $newPosId);
+                $stClear->execute();
+                $stClear->close();
+
                 $stU = $db->prepare("UPDATE Personnel SET OrgPositionID = ? WHERE ID = ?");
                 $stU->bind_param('ii', $newPosId, $persId);
                 $stU->execute();
@@ -72,32 +77,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $persId = (int)($_POST['personnel_id'] ?? 0) ?: null;
         $desc = trim((string)($_POST['description'] ?? ''));
 
-        // جلوگیری از ایجاد حلقه والد با خودش
-        if ($parentId === $posId) {
-            $parentId = null;
+        // جلوگیری از ایجاد حلقه والد با خودش یا تشکیل چرخه سلسله‌مراتبی
+        if ($parentId !== null && $parentId > 0) {
+            if ($parentId === $posId) {
+                flash_set('error', 'یک سمت سازمانی نمی‌تواند والد خودش باشد.');
+                header('Location: basics_chart.php');
+                exit;
+            }
+            $curr = $parentId;
+            $visited = [$posId => true];
+            $hasCycle = false;
+            while ($curr !== null && $curr > 0) {
+                if (isset($visited[$curr])) {
+                    $hasCycle = true;
+                    break;
+                }
+                $visited[$curr] = true;
+                $stP = $db->prepare("SELECT ParentID FROM OrgPositions WHERE ID = ?");
+                $stP->bind_param('i', $curr);
+                $stP->execute();
+                $pRow = $stP->get_result()->fetch_assoc();
+                $stP->close();
+                $curr = $pRow && $pRow['ParentID'] ? (int)$pRow['ParentID'] : null;
+            }
+            if ($hasCycle) {
+                flash_set('error', 'ایجاد چرخه در سلسله‌مراتب سازمانی مجاز نیست (والد انتخابی در زیرمجموعه همین سمت قرار دارد).');
+                header('Location: basics_chart.php');
+                exit;
+            }
         }
 
         if ($posId <= 0 || $title === '') {
             flash_set('error', 'اطلاعات سمت نامعتبر است.');
         } else {
-            $st = $db->prepare(
-                "UPDATE OrgPositions 
-                 SET Title = ?, Department = ?, ParentID = ?, CurrentPersonnelID = ?, Description = ?, UpdatedAt = NOW()
-                 WHERE ID = ?"
-            );
-            $st->bind_param('ssiisi', $title, $dept, $parentId, $persId, $desc, $posId);
-            $st->execute();
-            $st->close();
+            $db->begin_transaction();
+            try {
+                $st = $db->prepare(
+                    "UPDATE OrgPositions 
+                     SET Title = ?, Department = ?, ParentID = ?, CurrentPersonnelID = ?, Description = ?, UpdatedAt = NOW()
+                     WHERE ID = ?"
+                );
+                $st->bind_param('ssiisi', $title, $dept, $parentId, $persId, $desc, $posId);
+                $st->execute();
+                $st->close();
 
-            // به‌روزرسانی سمت در جدول پرسنل
-            if ($persId) {
-                $stU = $db->prepare("UPDATE Personnel SET OrgPositionID = ? WHERE ID = ?");
-                $stU->bind_param('ii', $posId, $persId);
-                $stU->execute();
-                $stU->close();
+                // اگر شاغل مشخص شده، سمت‌های قبلی این شخص تخلیه شده و سمت فعلی شاغل قبلی‌اش جدا می‌شود
+                if ($persId) {
+                    $stClear = $db->prepare("UPDATE OrgPositions SET CurrentPersonnelID = NULL WHERE CurrentPersonnelID = ? AND ID != ?");
+                    $stClear->bind_param('ii', $persId, $posId);
+                    $stClear->execute();
+                    $stClear->close();
+
+                    $stOldOcc = $db->prepare("UPDATE Personnel SET OrgPositionID = NULL WHERE OrgPositionID = ? AND ID != ?");
+                    $stOldOcc->bind_param('ii', $posId, $persId);
+                    $stOldOcc->execute();
+                    $stOldOcc->close();
+
+                    $stU = $db->prepare("UPDATE Personnel SET OrgPositionID = ? WHERE ID = ?");
+                    $stU->bind_param('ii', $posId, $persId);
+                    $stU->execute();
+                    $stU->close();
+                } else {
+                    $stOldOcc = $db->prepare("UPDATE Personnel SET OrgPositionID = NULL WHERE OrgPositionID = ?");
+                    $stOldOcc->bind_param('i', $posId);
+                    $stOldOcc->execute();
+                    $stOldOcc->close();
+                }
+
+                $db->commit();
+                flash_set('ok', 'سمت «' . $title . '» و انتصاب شاغل با موفقیت ذخیره شد.');
+            } catch (Throwable $e) {
+                $db->rollback();
+                flash_set('error', 'خطا در ویرایش سمت سازمانی: ' . $e->getMessage());
             }
-
-            flash_set('ok', 'سمت «' . $title . '» و انتصاب شاغل با موفقیت ذخیره شد.');
         }
         header('Location: basics_chart.php');
         exit;

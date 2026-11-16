@@ -127,13 +127,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
 
-        $res = hermes_transcribe_audio($tempPath);
-        @unlink($tempPath);
-        echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        // ایجاد تسک پس‌زمینه در HermesTasks جهت پردازش بدون مسدودسازی وب‌سرور
+        $st = $db->prepare("INSERT INTO HermesTasks (TaskType, RefID, TeamID, Status, Payload) VALUES ('audio_transcription', 0, ?, 'queued', ?)");
+        $payloadJson = json_encode(['file_path' => $tempPath, 'filename' => $file['name']], JSON_UNESCAPED_UNICODE);
+        $st->bind_param('is', $tid, $payloadJson);
+        $st->execute();
+        $taskId = (int)$st->insert_id;
+        $st->close();
+
+        hermes_spawn_worker("--task={$taskId}");
+
+        echo json_encode([
+            'success' => true,
+            'queued' => true,
+            'task_id' => $taskId,
+            'message' => 'فایل صوتی دریافت شد و در پس‌زمینه در حال پردازش است.'
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    // الف-۲) استخراج متن از اسناد مصاحبه و نیازمندی‌ها (.docx, .pdf, .txt, .md)
+    // الف-۲) بررسی وضعیت تسک تبدیل صوت
+    if ($action === 'check_transcription') {
+        header('Content-Type: application/json; charset=utf-8');
+        $taskId = (int)($_REQUEST['task_id'] ?? 0);
+        $st = $db->prepare("SELECT Status, Result, ErrorMessage FROM HermesTasks WHERE ID = ? AND TaskType = 'audio_transcription' AND TeamID = ?");
+        $st->bind_param('ii', $taskId, $tid);
+        $st->execute();
+        $task = $st->get_result()->fetch_assoc();
+        $st->close();
+
+        if (!$task) {
+            echo json_encode(['success' => false, 'error' => 'تسک صوتی یافت نشد.']);
+            exit;
+        }
+
+        if ($task['Status'] === 'completed') {
+            $res = json_decode((string)$task['Result'], true) ?: [];
+            echo json_encode([
+                'success' => true,
+                'status' => 'completed',
+                'text' => $res['text'] ?? '',
+                'message' => $res['message'] ?? null,
+                'partial' => !empty($res['partial']),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        } elseif ($task['Status'] === 'failed') {
+            echo json_encode([
+                'success' => false,
+                'status' => 'failed',
+                'error' => $task['ErrorMessage'] ?: 'پردازش فایل صوتی با خطا مواجه شد.',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        } else {
+            echo json_encode(['success' => true, 'status' => $task['Status']]);
+            exit;
+        }
+    }
+
+    // الف-۳) استخراج متن از اسناد مصاحبه و نیازمندی‌ها (.docx, .pdf, .txt, .md)
     if ($action === 'extract_document') {
         header('Content-Type: application/json; charset=utf-8');
         if (!csrf_check($_POST['csrf'] ?? null)) {
@@ -291,13 +342,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $old = [
     'name' => '', 'category_id' => 0, 'company_id' => 0, 'owner_position_id' => 0,
     'owner_id' => 0, 'audience_type' => 'all_company', 'audience_dept' => '',
-    'version' => '1.0', 'description' => ''
+    'version' => '1.0', 'status' => 'draft', 'description' => ''
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST['action'] === 'manual_save')) {
     if (!csrf_check($_POST['csrf'] ?? null)) {
         $error = 'اعتبار صفحه منقضی شده است.';
     } else {
+        $status = (string)($_POST['status'] ?? 'draft');
+        if (!in_array($status, ['draft','active','archived'], true)) $status = 'draft';
+
         $old = [
             'name' => trim((string)($_POST['name'] ?? '')),
             'category_id' => (int)($_POST['category_id'] ?? 0),
@@ -307,13 +361,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
             'audience_type' => (string)($_POST['audience_type'] ?? 'all_company'),
             'audience_dept' => trim((string)($_POST['audience_dept'] ?? '')),
             'version' => trim((string)($_POST['version'] ?? '1.0')) ?: '1.0',
+            'status' => $status,
             'description' => trim((string)($_POST['description'] ?? '')),
         ];
         if (!in_array($old['audience_type'], ['all_company', 'specific_positions', 'specific_personnel', 'department'], true)) {
             $old['audience_type'] = 'all_company';
         }
-        $status = (string)($_POST['status'] ?? 'draft');
-        if (!in_array($status, ['draft','active','archived'], true)) $status = 'draft';
 
         $st = $db->prepare('SELECT FolderName FROM ProcessCategories WHERE ID = ? AND Active = 1');
         $st->bind_param('i', $old['category_id']);
@@ -339,26 +392,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (!isset($_POST['action']) || $_POST
                 $catFolder = $cat['FolderName'];
                 $rel = $catFolder . '/' . $cleanName . '/';
                 $abs = fm_abs($rel);
-                if (!is_dir($abs)) {
-                    @mkdir($abs, 0775, true);
-                    @file_put_contents($abs . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
-                }
 
                 $companyId = $old['company_id'] ?: null;
                 $ownerPosId = $old['owner_position_id'] ?: null;
                 $ownerId = $old['owner_id'] ?: null;
                 $audDept = ($old['audience_type'] === 'department' && $old['audience_dept'] !== '') ? $old['audience_dept'] : null;
 
-                $st = $db->prepare(
-                    "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-                );
-                $st->bind_param('siisiissssss', $cleanName, $old['category_id'], $companyId, $rel, $ownerId, $ownerPosId, $tid, $old['description'], $old['audience_type'], $audDept, $status, $old['version']);
-                $st->execute();
-                $newId = (int)$db->insert_id;
-                $st->close();
-                header('Location: file.php?id=' . $newId . '&created=1');
-                exit;
+                $db->begin_transaction();
+                try {
+                    $st = $db->prepare(
+                        "INSERT INTO Processes (Name, CategoryID, CompanyID, FilePath, OwnerPersonnelID, OwnerPositionID, ResponsibleTeamID, Description, AudienceType, AudienceDepartment, Status, Version)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                    );
+                    $st->bind_param('siisiissssss', $cleanName, $old['category_id'], $companyId, $rel, $ownerId, $ownerPosId, $tid, $old['description'], $old['audience_type'], $audDept, $status, $old['version']);
+                    $st->execute();
+                    $newId = (int)$db->insert_id;
+                    $st->close();
+
+                    if (!is_dir($abs)) {
+                        @mkdir($abs, 0775, true);
+                        @file_put_contents($abs . DIRECTORY_SEPARATOR . '.htaccess', "Require all denied\n");
+                    }
+
+                    $db->commit();
+                    header('Location: file.php?id=' . $newId . '&created=1');
+                    exit;
+                } catch (Throwable $e) {
+                    $db->rollback();
+                    $error = 'خطا در ثبت فرآیند: ' . $e->getMessage();
+                }
             }
         }
     }
@@ -876,7 +938,36 @@ function insertSampleInterview() {
         })
         .then(r => r.json())
         .then(data => {
-            if (data.success && data.text) {
+            if (data.queued && data.task_id) {
+                showAudioStatus('🎵 فایل صوتی با موفقیت ارسال شد. در حال تبدیل در پس‌زمینه… لطفاً شکیبا باشید.', 'loading');
+                const taskId = data.task_id;
+                let attempts = 0;
+                const pollInterval = setInterval(() => {
+                    attempts++;
+                    if (attempts > 120) { // 4 minutes
+                        clearInterval(pollInterval);
+                        showAudioStatus('زمان تبدیل صوت طولانی شد؛ کار در پس‌زمینه ادامه دارد.', 'error');
+                        return;
+                    }
+                    fetch('process_new.php?action=check_transcription&task_id=' + encodeURIComponent(taskId))
+                        .then(r => r.json())
+                        .then(res => {
+                            if (res.status === 'completed') {
+                                clearInterval(pollInterval);
+                                if (res.text) {
+                                    textarea.value = (textarea.value.trim() ? textarea.value.trim() + "\n\n" : '') + res.text;
+                                    showAudioStatus('✅ فایل صوتی با موفقیت پیاده‌سازی و به متن اضافه شد.', 'ok');
+                                } else {
+                                    showAudioStatus(res.message || 'هیچ گفتار واضحی در فایل صوتی شناسایی نشد.', 'ok');
+                                }
+                            } else if (res.status === 'failed') {
+                                clearInterval(pollInterval);
+                                showAudioStatus('خطا در تبدیل صوت: ' + (res.error || 'پردازش با خطا مواجه شد.'), 'error');
+                            }
+                        })
+                        .catch(() => {});
+                }, 2000);
+            } else if (data.success && data.text) {
                 textarea.value = (textarea.value.trim() ? textarea.value.trim() + "\n\n" : '') + data.text;
                 showAudioStatus('✅ فایل صوتی با موفقیت پیاده‌سازی و به متن اضافه شد.', 'ok');
             } else {
@@ -972,7 +1063,7 @@ function showAudioStatus(msg, type) {
         box.style.background = '#f1f5f9';
         box.style.color = '#334155';
     }
-    box.innerHTML = msg;
+    box.textContent = msg;
 }
 
 // ۴. ارسال متن مصاحبه به هرمس جهت طراحی فرآیند
@@ -1248,8 +1339,8 @@ function escapeHtml(text) {
             <label class="field">
                 <span class="field-label">وضعیت</span>
                 <select name="status">
-                    <option value="draft" <?= $old['version'] === 'draft' ? 'selected' : '' ?>>پیش‌نویس</option>
-                    <option value="active">فعال</option>
+                    <option value="draft" <?= ($old['status'] ?? '') === 'draft' ? 'selected' : '' ?>>پیش‌نویس</option>
+                    <option value="active" <?= ($old['status'] ?? '') === 'active' ? 'selected' : '' ?>>فعال</option>
                 </select>
             </label>
             <label class="field">

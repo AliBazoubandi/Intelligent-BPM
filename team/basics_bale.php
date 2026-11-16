@@ -34,35 +34,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
 
     if ($action === 'test_send') {
-        $testPhone = trim((string)($_POST['test_phone'] ?? $_POST['test_chat_id'] ?? ''));
-        $testText  = trim((string)($_POST['test_text'] ?? ''));
-        $testLink  = trim((string)($_POST['test_link'] ?? ''));
-
-        if ($testPhone === '' || $testText === '') {
-            $error = 'شماره تماس دریافت‌کننده و متن پیام تست الزامی است.';
+        if (!team_is_admin($id)) {
+            $error = 'ارسال پیام دلخواه به بله تنها توسط تیم‌های مدیر ارشد مجاز است.';
         } else {
-            $res = bale_send_message($testPhone, $testText, [
-                'recipient_name'     => 'تست کاربری',
-                'recipient_position' => 'آزمایش وب‌سرویس',
-                'phone'              => $testPhone,
-                'link'               => $testLink,
-            ], $testLink ?: null);
-            $testResult = $res;
-            if ($res['success']) {
-                $notice = 'پیام آزمایشی با موفقیت به وب‌سرویس بله ارسال شد (کد پاسخ: ' . $res['http_code'] . ').';
+            $testPhone = trim((string)($_POST['test_phone'] ?? $_POST['test_chat_id'] ?? ''));
+            $testText  = trim((string)($_POST['test_text'] ?? ''));
+            $testLink  = trim((string)($_POST['test_link'] ?? ''));
+
+            if ($testPhone === '' || $testText === '') {
+                $error = 'شماره تماس دریافت‌کننده و متن پیام تست الزامی است.';
             } else {
-                $error = 'خطا در ارسال پیام به وب‌سرویس بله: ' . ($res['error'] ?: 'کد خطای HTTP ' . $res['http_code']);
+                $res = bale_send_message($testPhone, $testText, [
+                    'recipient_name'     => 'تست کاربری',
+                    'recipient_position' => 'آزمایش وب‌سرویس',
+                    'phone'              => $testPhone,
+                    'link'               => $testLink,
+                ], $testLink ?: null);
+                $testResult = $res;
+                if ($res['success']) {
+                    $notice = 'پیام آزمایشی با موفقیت به وب‌سرویس بله ارسال شد (کد پاسخ: ' . $res['http_code'] . ').';
+                } else {
+                    $error = 'خطا در ارسال پیام به وب‌سرویس بله: ' . ($res['error'] ?: 'کد خطای HTTP ' . $res['http_code']);
+                }
             }
         }
     } elseif ($action === 'retry_log') {
         $logId = (int)($_POST['log_id'] ?? 0);
-        $st = $db->prepare("SELECT * FROM BaleMessageLog WHERE ID = ?");
+        $st = $db->prepare("SELECT bml.*, p.RespTeamID FROM BaleMessageLog bml LEFT JOIN Processes p ON p.ID = bml.ProcessID WHERE bml.ID = ?");
         $st->bind_param('i', $logId);
         $st->execute();
         $logRow = $st->get_result()->fetch_assoc();
         $st->close();
 
         if ($logRow) {
+            if (!team_is_admin($id) && (int)($logRow['RespTeamID'] ?? 0) !== (int)$id['id']) {
+                flash_set('error', 'شما فقط مجاز به ارسال مجدد پیام‌های فرآیندهای تیم خود هستید.');
+                header('Location: basics_bale.php');
+                exit;
+            }
             $meta = [
                 'process_id'         => $logRow['ProcessID'],
                 'personnel_id'       => $logRow['RecipientPersonnelID'],
@@ -71,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
             $res = bale_send_message($logRow['BaleChatID'], $logRow['MessageText'], $meta);
             if ($res['success']) {
-                flash_set('ok', 'پیام مجدداً با موفقیت به ' . e($logRow['RecipientName']) . ' در بله ارسال شد.');
+                flash_set('ok', 'پیام مجدداً با موفقیت به ' . $logRow['RecipientName'] . ' در بله ارسال شد.');
             } else {
                 flash_set('error', 'خطا در ارسال مجدد: ' . ($res['error'] ?: 'کد ' . $res['http_code']));
             }
@@ -81,18 +90,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/* ---------- استخراج لاگ پیام‌های بله ---------- */
-$logsQuery = "
-    SELECT bml.*, p.Name AS ProcName
-    FROM BaleMessageLog bml
-    LEFT JOIN Processes p ON p.ID = bml.ProcessID
-    ORDER BY bml.ID DESC
-    LIMIT 100
-";
-$resLogs = $db->query($logsQuery);
+/* ---------- استخراج لاگ پیام‌های بله (محدود به فرآیندهای تیم برای غیراَدمین) ---------- */
 $logs = [];
-while ($r = $resLogs->fetch_assoc()) {
-    $logs[] = $r;
+if (team_is_admin($id)) {
+    $logsQuery = "
+        SELECT bml.*, p.Name AS ProcName
+        FROM BaleMessageLog bml
+        LEFT JOIN Processes p ON p.ID = bml.ProcessID
+        ORDER BY bml.ID DESC
+        LIMIT 100
+    ";
+    $resLogs = $db->query($logsQuery);
+    if ($resLogs) {
+        while ($r = $resLogs->fetch_assoc()) {
+            $logs[] = $r;
+        }
+    }
+} else {
+    $myTid = (int)$id['id'];
+    $stLogs = $db->prepare("
+        SELECT bml.*, p.Name AS ProcName
+        FROM BaleMessageLog bml
+        JOIN Processes p ON p.ID = bml.ProcessID
+        WHERE p.RespTeamID = ?
+        ORDER BY bml.ID DESC
+        LIMIT 100
+    ");
+    $stLogs->bind_param('i', $myTid);
+    $stLogs->execute();
+    $logs = $stLogs->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stLogs->close();
 }
 
 $totalSent = count(array_filter($logs, fn($l) => $l['Status'] === 'sent'));
@@ -151,9 +178,10 @@ $csrf = csrf_token();
         </table>
     </div>
 
-    <!-- فرم تست آنی ارسال پیام به بله -->
+    <!-- فرم تست آنی ارسال پیام به بله (مختص تیم مدیر ارشد) -->
     <div class="card" style="flex:1;margin-bottom:0">
         <h2 style="font-size:15px;margin-bottom:8px">🧪 تست ارسال زنده پیام به بله</h2>
+        <?php if (team_is_admin($id)): ?>
         <form method="post" autocomplete="off">
             <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
             <input type="hidden" name="action" value="test_send">
@@ -188,6 +216,9 @@ $csrf = csrf_token();
                     <div style="margin-top:4px;word-break:break-all"><code class="num-ltr"><?= e($testResult['response']) ?></code></div>
                 <?php endif; ?>
             </div>
+        <?php endif; ?>
+        <?php else: ?>
+            <p style="color:var(--muted);font-size:13px;line-height:1.8">ارسال پیام‌های دستی و آزمایش وب‌سرویس بله تنها در اختیار تیم مدیر ارشد سیستم است. اعلان‌های فرآیندی مربوط به فرآیندهای تحت سرپرستی تیم شما به صورت خودکار از طریق ماژول ارسال خواهد شد.</p>
         <?php endif; ?>
     </div>
 </div>

@@ -6,26 +6,157 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/icons.php';
 
 /**
+ * اعتبارسنجی امن پیوندهای برنامه جهت جلوگیری از حملات XSS و Open Redirect
+ */
+if (!function_exists('is_safe_app_url')) {
+    function is_safe_app_url(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') return false;
+        if (preg_match('/^(javascript|data|vbscript|file):/i', $url)) {
+            return false;
+        }
+        if (str_starts_with($url, '/') && !str_starts_with($url, '//')) {
+            return true;
+        }
+        if (defined('BASE_URL') && BASE_URL !== '' && str_starts_with($url, BASE_URL)) {
+            $parsed = parse_url($url);
+            $baseParsed = parse_url(BASE_URL);
+            if (isset($parsed['host']) && isset($baseParsed['host']) && strcasecmp($parsed['host'], $baseParsed['host']) !== 0) {
+                return false;
+            }
+            return true;
+        }
+        if (!preg_match('#^[a-zA-Z][a-zA-Z0-9+\-.]*:#', $url) && !str_starts_with($url, '//')) {
+            return true;
+        }
+        return false;
+    }
+}
+
+/**
+ * دریافت تعداد اعلان‌های خوانده نشده تفکیک‌شده بر اساس Type
+ * با در نظر گرفتن خوانده‌شدن به ازای هر کاربر/تیم و فیلتر شرکت
+ */
+function notification_get_unread_counts(mysqli $db, string $readerType, int $readerId, ?int $companyId = null): array
+{
+    $counts = ['hermes' => 0, 'message' => 0, 'total' => 0];
+    if ($readerType === 'team') {
+        $sql = "SELECT n.Type, COUNT(*) AS c 
+                FROM Notifications n 
+                WHERE (n.TargetTeamID = ? OR (n.TargetTeamID IS NULL AND n.TargetPersonnelID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM NotificationReads nr 
+                      WHERE nr.NotificationID = n.ID AND nr.ReaderType = 'team' AND nr.ReaderID = ?
+                  )
+                GROUP BY n.Type";
+    } else {
+        $sql = "SELECT n.Type, COUNT(*) AS c 
+                FROM Notifications n 
+                WHERE (n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM NotificationReads nr 
+                      WHERE nr.NotificationID = n.ID AND nr.ReaderType = 'user' AND nr.ReaderID = ?
+                  )
+                GROUP BY n.Type";
+    }
+
+    $st = $db->prepare($sql);
+    if ($st) {
+        $st->bind_param('iiii', $readerId, $companyId, $companyId, $readerId);
+        $st->execute();
+        $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $t = $row['Type'] ?? '';
+            $c = (int)($row['c'] ?? 0);
+            if ($t === 'hermes') $counts['hermes'] = $c;
+            if ($t === 'message') $counts['message'] = $c;
+        }
+        $st->close();
+    }
+    $counts['total'] = $counts['hermes'] + $counts['message'];
+    return $counts;
+}
+
+/**
+ * علامت‌گذاری یک اعلان به عنوان خوانده‌شده به ازای کاربر یا تیم
+ */
+function notification_mark_read(mysqli $db, string $readerType, int $readerId, ?int $companyId, int $notifId): bool
+{
+    if ($readerType === 'team') {
+        $sql = "INSERT INTO NotificationReads (NotificationID, ReaderType, ReaderID, ReadAt)
+                SELECT n.ID, 'team', ?, NOW()
+                FROM Notifications n
+                WHERE n.ID = ?
+                  AND (n.TargetTeamID = ? OR (n.TargetTeamID IS NULL AND n.TargetPersonnelID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                ON DUPLICATE KEY UPDATE ReadAt = NOW()";
+    } else {
+        $sql = "INSERT INTO NotificationReads (NotificationID, ReaderType, ReaderID, ReadAt)
+                SELECT n.ID, 'user', ?, NOW()
+                FROM Notifications n
+                WHERE n.ID = ?
+                  AND (n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                ON DUPLICATE KEY UPDATE ReadAt = NOW()";
+    }
+
+    $st = $db->prepare($sql);
+    if (!$st) return false;
+    $st->bind_param('iiiii', $readerId, $notifId, $readerId, $companyId, $companyId);
+    $st->execute();
+    $affected = ($st->affected_rows >= 1);
+    $st->close();
+    return $affected;
+}
+
+/**
+ * علامت‌گذاری تمام اعلان‌های یک تب به عنوان خوانده‌شده به ازای کاربر یا تیم
+ */
+function notification_mark_all_read(mysqli $db, string $readerType, int $readerId, ?int $companyId, ?string $type = null): bool
+{
+    if ($readerType === 'team') {
+        $sql = "INSERT INTO NotificationReads (NotificationID, ReaderType, ReaderID, ReadAt)
+                SELECT n.ID, 'team', ?, NOW()
+                FROM Notifications n
+                WHERE (n.TargetTeamID = ? OR (n.TargetTeamID IS NULL AND n.TargetPersonnelID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                  AND (? IS NULL OR n.Type = ?)
+                ON DUPLICATE KEY UPDATE ReadAt = NOW()";
+    } else {
+        $sql = "INSERT INTO NotificationReads (NotificationID, ReaderType, ReaderID, ReadAt)
+                SELECT n.ID, 'user', ?, NOW()
+                FROM Notifications n
+                WHERE (n.TargetPersonnelID = ? OR (n.TargetPersonnelID IS NULL AND n.TargetTeamID IS NULL))
+                  AND (? IS NULL OR n.TargetCompanyID IS NULL OR n.TargetCompanyID = ?)
+                  AND (? IS NULL OR n.Type = ?)
+                ON DUPLICATE KEY UPDATE ReadAt = NOW()";
+    }
+
+    $st = $db->prepare($sql);
+    if (!$st) return false;
+    $st->bind_param('iiiiss', $readerId, $readerId, $companyId, $companyId, $type, $type);
+    $st->execute();
+    $st->close();
+    return true;
+}
+
+/**
  * هدر ناحیه کاربر: نوار بالا (برند + پروفایل) و نوار منوی برداری
  */
 function user_header(array $id, string $active, string $pageTitle): void
 {
     $uid = (int)($id['id'] ?? 0);
+    $compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
     $hermesNotifCount = 0;
     $msgNotifCount = 0;
     try {
         $db = app_db();
-        $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
-        $cntH->bind_param('i', $uid);
-        $cntH->execute();
-        $hermesNotifCount = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
-        $cntH->close();
-
-        $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetPersonnelID = ? OR (TargetPersonnelID IS NULL AND TargetTeamID IS NULL)) AND IsRead = 0 AND Type = 'message'");
-        $cntM->bind_param('i', $uid);
-        $cntM->execute();
-        $msgNotifCount = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
-        $cntM->close();
+        $counts = notification_get_unread_counts($db, 'user', $uid, $compId);
+        $hermesNotifCount = $counts['hermes'];
+        $msgNotifCount = $counts['message'];
     } catch (Throwable) {}
 
     $totalNotifCount = $hermesNotifCount + $msgNotifCount;
@@ -127,10 +258,13 @@ function user_header(array $id, string $active, string $pageTitle): void
                             <span>بهبودهای من</span>
                         </a>
                         <div class="user-dd-divider"></div>
-                        <a href="logout.php" class="user-dd-link user-dd-logout">
-                            <?= app_icon('logout', '', 14) ?>
-                            <span>خروج از حساب</span>
-                        </a>
+                        <form action="logout.php" method="POST" style="margin:0">
+                            <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                            <button type="submit" class="user-dd-link user-dd-logout" style="width:100%;text-align:inherit;background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:flex;align-items:center;gap:8px">
+                                <?= app_icon('logout', '', 14) ?>
+                                <span>خروج از حساب</span>
+                            </button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -151,6 +285,27 @@ function user_header(array $id, string $active, string $pageTitle): void
 <script>
 (function() {
     let notifiedIds = new Set();
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function isSafeUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        url = url.trim();
+        if (/^(javascript|data|vbscript|file):/i.test(url)) return false;
+        if (url.startsWith('//')) return false;
+        if (url.startsWith('/')) return true;
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function getDismissedSet() {
         try {
             const raw = localStorage.getItem('robinflow_user_dismissed_notifs');
@@ -198,7 +353,11 @@ function user_header(array $id, string $active, string $pageTitle): void
             toastEl.style.transform = 'translateY(12px) scale(0.96)';
             setTimeout(() => { if (toastEl.parentElement) toastEl.remove(); }, 250);
         }
-        fetch('<?= BASE_URL ?>/user/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+        fetch('<?= BASE_URL ?>/user/notifications.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'mark_read_ajax=1&csrf=<?= csrf_token() ?>&id=' + encodeURIComponent(nid)
+        })
             .then(r => r.json())
             .then(data => {
                 if (data && typeof data.hermes_unread_count !== 'undefined') {
@@ -223,10 +382,10 @@ function user_header(array $id, string $active, string $pageTitle): void
         if (cleanBody.length > 70) cleanBody = cleanBody.substring(0, 70) + '…';
 
         toast.innerHTML = `
-            <div class="fast-msg-avatar">💬</div>
+            <div class="fast-msg-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
             <div class="fast-msg-body">
-                <div class="fast-msg-title">${n.Title || 'پیام جدید در گفتگو'}</div>
-                ${cleanBody ? `<div class="fast-msg-sub">${cleanBody}</div>` : ''}
+                <div class="fast-msg-title">${escapeHtml(n.Title || 'پیام جدید در گفتگو')}</div>
+                ${cleanBody ? `<div class="fast-msg-sub">${escapeHtml(cleanBody)}</div>` : ''}
             </div>
             <button type="button" class="fast-msg-close" title="بستن">×</button>
         `;
@@ -238,7 +397,11 @@ function user_header(array $id, string $active, string $pageTitle): void
             setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
             if (markRead) {
                 dismissedSet.add(nid);
-                fetch('<?= BASE_URL ?>/user/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+                fetch('<?= BASE_URL ?>/user/notifications.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'mark_read_ajax=1&csrf=<?= csrf_token() ?>&id=' + encodeURIComponent(nid)
+        })
                     .then(r => r.json())
                     .then(res => {
                         const mBadge = document.getElementById('msgNotifBadge');
@@ -257,7 +420,7 @@ function user_header(array $id, string $active, string $pageTitle): void
                 return;
             }
             dismiss(true);
-            if (n.Link) {
+            if (n.Link && isSafeUrl(n.Link)) {
                 window.location.href = n.Link;
             }
         });
@@ -272,6 +435,7 @@ function user_header(array $id, string $active, string $pageTitle): void
     }
 
     function pollUserAlerts() {
+        if (document.hidden) return;
         fetch('<?= BASE_URL ?>/user/notifications.php?check_unread=1')
             .then(r => r.json())
             .then(data => {
@@ -328,7 +492,8 @@ function user_header(array $id, string $active, string $pageTitle): void
         toast.style.cssText = 'pointer-events:auto;background:#0f172a;color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 12px 28px -5px rgba(0,0,0,0.35);border:1px solid #334155;display:flex;flex-direction:column;gap:6px;font-family:inherit;font-size:13px;transition:opacity 0.25s ease, transform 0.25s ease;animation:slideIn 0.3s ease-out;';
 
         let linkHtml = '';
-        if (n.Link) {
+        if (n.Link && isSafeUrl(n.Link)) {
+            const safeLink = encodeURI(n.Link).replace(/"/g, '&quot;');
             let btnText = 'مشاهده پیوند مرتبط ←';
             if (n.Link.indexOf('.pdf') !== -1) {
                 btnText = 'مشاهده و دانلود سند PDF ←';
@@ -337,15 +502,15 @@ function user_header(array $id, string $active, string $pageTitle): void
             } else if (n.Link.indexOf('processes.php') !== -1) {
                 btnText = 'مشاهده فرآیند ←';
             }
-            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${btnText}</a>`;
+            linkHtml = `<a href="${safeLink}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${escapeHtml(btnText)}</a>`;
         }
 
         toast.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px">🤖 ${n.Title}</span>
+                <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.5" fill="currentColor"/><circle cx="15" cy="13" r="1.5" fill="currentColor"/><path d="M12 2v4M8 2h8"/></svg> ${escapeHtml(n.Title || '')}</span>
                 <button type="button" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" title="بستن">×</button>
             </div>
-            ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${n.Body}</div>` : ''}
+            ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${escapeHtml(n.Body)}</div>` : ''}
             ${linkHtml}
         `;
         container.appendChild(toast);
@@ -358,8 +523,11 @@ function user_header(array $id, string $active, string $pageTitle): void
         }, 16000);
     }
 
-    setInterval(pollUserAlerts, 8000);
+    setInterval(pollUserAlerts, 25000);
     setTimeout(pollUserAlerts, 1500);
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) pollUserAlerts();
+    });
 })();
 </script>
 <main class="app-main">
@@ -489,8 +657,9 @@ function discussion_dispatch_notifications(
     if (!$info) return;
 
     $procId = (int)$info['ProcessID'];
-    $procName = (string)$info['ProcName'];
-    $impTitle = (string)$info['ImpTitle'];
+    $procName = trim(strip_tags((string)$info['ProcName']));
+    $impTitle = trim(strip_tags((string)$info['ImpTitle']));
+    $senderName = trim(strip_tags((string)$senderName));
     $respTeamId = (int)($info['ResponsibleTeamID'] ?? 0);
     $reqType = (string)$info['requester_type'];
     $reqId = (int)$info['requester_id'];
@@ -504,6 +673,7 @@ function discussion_dispatch_notifications(
             $title = "پیام جدید در گفتگوی فرآیند «{$procName}»";
             $body = "کاربر {$senderName} در گفتگوی بهبود «{$impTitle}» پیامی فرستاد: «{$preview}»";
             $link = BASE_URL . "/team/discussion.php?imp={$impId}";
+            if (!is_safe_app_url($link)) $link = '';
             $fromType = 'user';
 
             $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetTeamID, Priority, Type) VALUES (?, ?, ?, ?, ?, ?, ?, 'normal', 'message')");
@@ -520,10 +690,11 @@ function discussion_dispatch_notifications(
     // ۲. اگر تیم فرآیند پاسخ داده باشد: ارسال اعلان به کاربر پیشنهاددهنده
     elseif ($senderType === 'team') {
         if ($reqType === 'user' && $reqId > 0) {
-            $teamLabel = !empty($info['TeamName']) ? $info['TeamName'] : 'تیم فرآیند';
+            $teamLabel = !empty($info['TeamName']) ? trim(strip_tags((string)$info['TeamName'])) : 'تیم فرآیند';
             $title = "پاسخ تیم فرآیند در گفتگوی «{$procName}»";
             $body = "تیم فرآیند ({$teamLabel}) در گفتگوی «{$impTitle}» پاسخی ارسال کرد: «{$preview}»";
             $link = BASE_URL . "/user/discussion.php?imp={$impId}";
+            if (!is_safe_app_url($link)) $link = '';
             $fromType = 'team';
 
             $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type) VALUES (?, ?, ?, ?, ?, ?, ?, 'normal', 'message')");
@@ -546,6 +717,7 @@ function discussion_dispatch_notifications(
         // به کاربر
         if ($reqType === 'user' && $reqId > 0) {
             $userLink = BASE_URL . "/user/discussion.php?imp={$impId}";
+            if (!is_safe_app_url($userLink)) $userLink = '';
             $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetPersonnelID, Priority, Type) VALUES (?, ?, ?, ?, 0, ?, ?, 'normal', 'message')");
             $ins->bind_param('ssssii', $title, $body, $userLink, $fromType, $procId, $reqId);
             $ins->execute();
@@ -555,6 +727,7 @@ function discussion_dispatch_notifications(
         // به تیم
         if ($respTeamId > 0) {
             $teamLink = BASE_URL . "/team/discussion.php?imp={$impId}";
+            if (!is_safe_app_url($teamLink)) $teamLink = '';
             $ins = $db->prepare("INSERT INTO Notifications (Title, Body, Link, FromType, FromID, ProcessID, TargetTeamID, Priority, Type) VALUES (?, ?, ?, ?, 0, ?, ?, 'normal', 'message')");
             $ins->bind_param('ssssii', $title, $body, $teamLink, $fromType, $procId, $respTeamId);
             $ins->execute();
@@ -581,21 +754,14 @@ function team_header(array $id, string $active, string $pageTitle): void
     ];
     $basicsActive = isset($basicsChildren[$active]) || $active === 'basics';
     $tid = (int)($id['id'] ?? 0);
+    $compId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
     $hermesNotifCount = 0;
     $msgNotifCount = 0;
     try {
         $db = app_db();
-        $cntH = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0 AND Type = 'hermes'");
-        $cntH->bind_param('i', $tid);
-        $cntH->execute();
-        $hermesNotifCount = (int)($cntH->get_result()->fetch_assoc()['c'] ?? 0);
-        $cntH->close();
-
-        $cntM = $db->prepare("SELECT COUNT(*) AS c FROM Notifications WHERE (TargetTeamID = ? OR (TargetTeamID IS NULL AND TargetPersonnelID IS NULL)) AND IsRead = 0 AND Type = 'message'");
-        $cntM->bind_param('i', $tid);
-        $cntM->execute();
-        $msgNotifCount = (int)($cntM->get_result()->fetch_assoc()['c'] ?? 0);
-        $cntM->close();
+        $counts = notification_get_unread_counts($db, 'team', $tid, $compId);
+        $hermesNotifCount = $counts['hermes'];
+        $msgNotifCount = $counts['message'];
     } catch (Throwable) {}
 
     $totalNotifCount = $hermesNotifCount + $msgNotifCount;
@@ -679,10 +845,13 @@ function team_header(array $id, string $active, string $pageTitle): void
                             <span>لیست بهبودها</span>
                         </a>
                         <div class="user-dd-divider"></div>
-                        <a href="logout.php" class="user-dd-link user-dd-logout">
-                            <?= app_icon('logout', '', 14) ?>
-                            <span>خروج از حساب</span>
-                        </a>
+                        <form action="logout.php" method="POST" style="margin:0">
+                            <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                            <button type="submit" class="user-dd-link user-dd-logout" style="width:100%;text-align:inherit;background:none;border:none;cursor:pointer;font-family:inherit;font-size:inherit;display:flex;align-items:center;gap:8px">
+                                <?= app_icon('logout', '', 14) ?>
+                                <span>خروج از حساب</span>
+                            </button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -781,6 +950,27 @@ function team_header(array $id, string $active, string $pageTitle): void
 (function() {
     let notifiedIds = new Set();
 
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function isSafeUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        url = url.trim();
+        if (/^(javascript|data|vbscript|file):/i.test(url)) return false;
+        if (url.startsWith('//')) return false;
+        if (url.startsWith('/')) return true;
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function getDismissedSet() {
         try {
             const raw = localStorage.getItem('robinflow_dismissed_notifs');
@@ -835,7 +1025,11 @@ function team_header(array $id, string $active, string $pageTitle): void
             }, 250);
         }
 
-        fetch('<?= BASE_URL ?>/team/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+        fetch('<?= BASE_URL ?>/team/notifications.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'mark_read_ajax=1&csrf=<?= csrf_token() ?>&id=' + encodeURIComponent(nid)
+        })
             .then(r => r.json())
             .then(data => {
                 if (data && typeof data.hermes_unread_count !== 'undefined') {
@@ -861,10 +1055,10 @@ function team_header(array $id, string $active, string $pageTitle): void
         if (cleanBody.length > 70) cleanBody = cleanBody.substring(0, 70) + '…';
 
         toast.innerHTML = `
-            <div class="fast-msg-avatar">💬</div>
+            <div class="fast-msg-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
             <div class="fast-msg-body">
-                <div class="fast-msg-title">${n.Title || 'پیام جدید در گفتگو'}</div>
-                ${cleanBody ? `<div class="fast-msg-sub">${cleanBody}</div>` : ''}
+                <div class="fast-msg-title">${escapeHtml(n.Title || 'پیام جدید در گفتگو')}</div>
+                ${cleanBody ? `<div class="fast-msg-sub">${escapeHtml(cleanBody)}</div>` : ''}
             </div>
             <button type="button" class="fast-msg-close" title="بستن">×</button>
         `;
@@ -876,7 +1070,11 @@ function team_header(array $id, string $active, string $pageTitle): void
             setTimeout(() => { if (toast.parentElement) toast.remove(); }, 250);
             if (markRead) {
                 dismissedSet.add(nid);
-                fetch('<?= BASE_URL ?>/team/notifications.php?mark_read_ajax=1&id=' + encodeURIComponent(nid))
+                fetch('<?= BASE_URL ?>/team/notifications.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'mark_read_ajax=1&csrf=<?= csrf_token() ?>&id=' + encodeURIComponent(nid)
+        })
                     .then(r => r.json())
                     .then(res => {
                         const mBadge = document.getElementById('msgNotifBadge');
@@ -895,7 +1093,7 @@ function team_header(array $id, string $active, string $pageTitle): void
                 return;
             }
             dismiss(true);
-            if (n.Link) {
+            if (n.Link && isSafeUrl(n.Link)) {
                 window.location.href = n.Link;
             }
         });
@@ -910,6 +1108,7 @@ function team_header(array $id, string $active, string $pageTitle): void
     }
 
     function pollHermesAlerts() {
+        if (document.hidden) return;
         fetch('<?= BASE_URL ?>/team/notifications.php?check_unread=1')
             .then(r => r.json())
             .then(data => {
@@ -967,7 +1166,8 @@ function team_header(array $id, string $active, string $pageTitle): void
         toast.style.cssText = 'pointer-events:auto;background:#0f172a;color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 12px 28px -5px rgba(0,0,0,0.35);border:1px solid #334155;display:flex;flex-direction:column;gap:6px;font-family:inherit;font-size:13px;transition:opacity 0.25s ease, transform 0.25s ease;animation:slideIn 0.3s ease-out;';
         
         let linkHtml = '';
-        if (n.Link) {
+        if (n.Link && isSafeUrl(n.Link)) {
+            const safeLink = encodeURI(n.Link).replace(/"/g, '&quot;');
             let btnText = 'مشاهده پیوند مرتبط ←';
             if (n.Link.indexOf('.pdf') !== -1) {
                 btnText = 'مشاهده و دانلود سند PDF ←';
@@ -976,15 +1176,15 @@ function team_header(array $id, string $active, string $pageTitle): void
             } else if (n.Link.indexOf('file.php') !== -1 || n.Link.indexOf('processes.php') !== -1) {
                 btnText = 'مشاهده پرونده فرآیند ←';
             }
-            linkHtml = `<a href="${n.Link}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${btnText}</a>`;
+            linkHtml = `<a href="${safeLink}" target="_blank" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="display:inline-block;margin-top:6px;background:#2563eb;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;text-align:center">${escapeHtml(btnText)}</a>`;
         }
         
         toast.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px">🤖 ${n.Title}</span>
+                <span style="font-weight:bold;color:#38bdf8;display:flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.5" fill="currentColor"/><circle cx="15" cy="13" r="1.5" fill="currentColor"/><path d="M12 2v4M8 2h8"/></svg> ${escapeHtml(n.Title || '')}</span>
                 <button type="button" onclick="window.dismissHermesNotif(${nid}, this.closest('.hermes-toast-item'))" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" title="بستن">×</button>
             </div>
-            ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${n.Body}</div>` : ''}
+            ${n.Body ? `<div style="color:#cbd5e1;font-size:12px;line-height:1.6">${escapeHtml(n.Body)}</div>` : ''}
             ${linkHtml}
         `;
         container.appendChild(toast);
@@ -997,8 +1197,11 @@ function team_header(array $id, string $active, string $pageTitle): void
         }, 16000);
     }
 
-    setInterval(pollHermesAlerts, 8000);
+    setInterval(pollHermesAlerts, 25000);
     setTimeout(pollHermesAlerts, 1500);
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) pollHermesAlerts();
+    });
 })();
 </script>
 <main class="app-main">

@@ -66,8 +66,9 @@ function fm_sync_after_rename(mysqli $db, string $oldRel, string $newRel, string
         $st->execute(); $st->close();
     }
 
-    // مسیرهای تودرتو (زیرپوشه‌های همان پوشه)
-    $like = $oldDir . '%';
+    // مسیرهای تودرتو (زیرپوشه‌های همان پوشه) با فرار دادن کاراکترهای ویژه LIKE
+    $escapedOldDir = addcslashes($oldDir, '%_\\');
+    $like = $escapedOldDir . '%';
     $pos = mb_strlen($oldDir) + 1;
     $st = $db->prepare('UPDATE Processes SET FilePath = CONCAT(?, SUBSTRING(REPLACE(FilePath, CHAR(92), "/"), ?)) WHERE REPLACE(FilePath, CHAR(92), "/") LIKE ?');
     $prefix = $newDir;
@@ -109,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = fm_clean_name((string)($_POST['new_dir'] ?? ''));
             if ($name === null) $error = 'نام پوشه معتبر نیست.';
             elseif ($name[0] === '.') $error = 'نام پوشه نمی‌تواند با نقطه شروع شود.';
+            elseif (preg_match('/\.(php[0-9]*|pht|phtml|phar|cgi|asp|aspx|jsp|sh|exe|pl|py)$/i', $name)) $error = 'نام پوشه نمی‌تواند شامل پسوندهای اجرایی باشد.';
             elseif (file_exists($abs . DIRECTORY_SEPARATOR . $name)) $error = 'پوشه‌ای با این نام وجود دارد.';
             else {
                 $target = $abs . DIRECTORY_SEPARATOR . $name;
@@ -125,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $srcAbs = $old === null ? null : $abs . DIRECTORY_SEPARATOR . $old;
             if ($old === null || $new === null) $error = 'نام معتبر نیست.';
             elseif (!is_file((string)$srcAbs)) $error = 'فایل پیدا نشد.';
+            elseif (!fm_allowed_ext($new)) $error = 'فرمت نام جدید («' . $new . '») مجاز نیست.';
             elseif ($old === $new) $notice = 'نام تغییری نکرد.';
             elseif (file_exists($abs . DIRECTORY_SEPARATOR . $new)) $error = 'فایلی با نام جدید وجود دارد.';
             elseif (!@rename($srcAbs, $abs . DIRECTORY_SEPARATOR . $new)) $error = 'تغییر نام ناموفق بود.';
@@ -138,7 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $destAbs = fm_safe_abs($destRel);
             if ($old === null || $destAbs === null) $error = 'مقصد یا فایل نامعتبر است.';
             elseif (!is_file($abs . DIRECTORY_SEPARATOR . $old)) $error = 'فایل پیدا نشد.';
+            elseif (!fm_allowed_ext($old)) $error = 'انتقال این نوع فایل مجاز نیست.';
             elseif (str_replace('\\', '/', $destAbs) === str_replace('\\', '/', $abs)) $error = 'فایل همین‌جا قرار دارد.';
+            elseif (file_exists($destAbs . DIRECTORY_SEPARATOR . $old)) $error = 'فایلی با همین نام در پوشه مقصد وجود دارد.';
             elseif (@rename($abs . DIRECTORY_SEPARATOR . $old, $destAbs . DIRECTORY_SEPARATOR . $old)) {
                 $notice = '«' . $old . '» به پوشه ' . ($destRel === '' ? 'ریشه' : $destRel) . ' منتقل شد.';
             } else $error = 'انتقال فایل ناموفق بود.';
@@ -156,6 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $child = fm_clean_name((string)($_POST['name'] ?? ''));
             $newBase = fm_clean_name((string)($_POST['new_name'] ?? ''));
             if ($child === null || $newBase === null) $error = 'نام پوشه معتبر نیست.';
+            elseif (preg_match('/\.(php[0-9]*|pht|phtml|phar|cgi|asp|aspx|jsp|sh|exe|pl|py)$/i', $newBase)) $error = 'نام پوشه نمی‌تواند شامل پسوندهای اجرایی باشد.';
             elseif ($child === $newBase) $notice = 'نام تغییری نکرد.';
             else {
                 $oldAbs = $abs . DIRECTORY_SEPARATOR . $child;
@@ -441,10 +447,10 @@ $segments = $rel === '' ? [] : explode('/', $rel);
                                     <?= app_icon('folder_open', '', 14) ?>
                                 </a>
                                 <?php if ($canWrite && !$locked): ?>
-                                    <button type="button" class="fm-act-btn" onclick="openRenameModal('<?= e(addslashes($d['name'])) ?>', 'dir')" title="تغییر نام پوشه">
+                                    <button type="button" class="fm-act-btn" data-name="<?= e($d['name']) ?>" onclick="openRenameModal(this.dataset.name, 'dir')" title="تغییر نام پوشه">
                                         <?= app_icon('edit', '', 14) ?>
                                     </button>
-                                    <button type="button" class="fm-act-btn danger" onclick="openDeleteDirModal('<?= e(addslashes($d['name'])) ?>', <?= $nonEmpty ? 'true' : 'false' ?>)" title="حذف پوشه">
+                                    <button type="button" class="fm-act-btn danger" data-name="<?= e($d['name']) ?>" data-nonempty="<?= $nonEmpty ? '1' : '0' ?>" onclick="openDeleteDirModal(this.dataset.name, this.dataset.nonempty === '1')" title="حذف پوشه">
                                         <?= app_icon('trash', '', 14) ?>
                                     </button>
                                 <?php endif; ?>
@@ -483,15 +489,15 @@ $segments = $rel === '' ? [] : explode('/', $rel);
                                     <?= app_icon('download', '', 14) ?>
                                 </a>
                                 <?php if ($canWrite): ?>
-                                    <button type="button" class="fm-act-btn" onclick="openRenameModal('<?= e(addslashes($f['name'])) ?>', 'file')" title="تغییر نام">
+                                    <button type="button" class="fm-act-btn" data-name="<?= e($f['name']) ?>" onclick="openRenameModal(this.dataset.name, 'file')" title="تغییر نام">
                                         <?= app_icon('edit', '', 14) ?>
                                     </button>
                                     <?php if ($allDirs): ?>
-                                        <button type="button" class="fm-act-btn" onclick="openMoveModal('<?= e(addslashes($f['name'])) ?>')" title="انتقال فایل">
+                                        <button type="button" class="fm-act-btn" data-name="<?= e($f['name']) ?>" onclick="openMoveModal(this.dataset.name)" title="انتقال فایل">
                                             <?= app_icon('reply', '', 14) ?>
                                         </button>
                                     <?php endif; ?>
-                                    <form method="post" class="inline-form" onsubmit="return confirm('آیا از حذف فایل «<?= e(addslashes($f['name'])) ?>» مطمئن هستید؟');" style="margin:0">
+                                    <form method="post" class="inline-form" data-name="<?= e($f['name']) ?>" onsubmit="return confirm('آیا از حذف فایل «' + this.dataset.name + '» مطمئن هستید؟');" style="margin:0">
                                         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
                                         <input type="hidden" name="action" value="delete_file">
                                         <input type="hidden" name="dir" value="<?= e($rel) ?>">

@@ -10,7 +10,12 @@ $db = app_db();
 
 $uid = (int)$id['id'];
 
-$userRow = $db->query("SELECT OrgPositionID, CompanyID FROM Personnel WHERE ID = {$uid}")->fetch_assoc();
+$stUser = $db->prepare("SELECT OrgPositionID, CompanyID FROM Personnel WHERE ID = ?");
+$stUser->bind_param('i', $uid);
+$stUser->execute();
+$userRow = $stUser->get_result()->fetch_assoc();
+$stUser->close();
+
 $userPosId = (int)($userRow['OrgPositionID'] ?? 0);
 $userCompId = (int)($userRow['CompanyID'] ?? 0);
 
@@ -32,7 +37,8 @@ $st = $db->prepare(
         OR (imp.requester_type='user' AND imp.requester_id = ?)
         OR (p.AudienceType = 'all_company' AND (p.CompanyID = ? OR p.CompanyID IS NULL))
         OR (p.ID IN (SELECT ProcessID FROM ProcessAudience WHERE (TargetType='personnel' AND TargetID = ?) OR (TargetType='position' AND TargetID = ?)))
-     ORDER BY ch.CreatedAt DESC"
+     ORDER BY ch.CreatedAt DESC
+     LIMIT 200"
 );
 $st->bind_param('iiiiiii', $uid, $uid, $uid, $uid, $userCompId, $uid, $userPosId);
 $st->execute();

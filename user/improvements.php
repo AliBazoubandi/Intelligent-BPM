@@ -44,20 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$ok) {
                 flash_set('error', 'پیشنهاد مورد نظر یافت نشد یا دسترسی به آن ندارید.');
             } else {
-                $st = $db->prepare(
-                    "UPDATE Improvements 
-                     SET AiVerdict = 'pending', 
-                         AiAnalysis = NULL, 
-                         AiEvaluatedAt = NULL, 
-                         CreatedAt = NOW(), 
-                         UpdatedAt = NOW() 
-                     WHERE ID = ?"
-                );
-                $st->bind_param('i', $impId);
-                $st->execute();
-                $st->close();
-
-                hermes_dispatch_async_eval($impId);
+                hermes_retry_improvement_evaluation($db, $impId);
                 flash_set('ok', 'درخواست ارزیابی مجدد هرمس برای پیشنهاد #' . $impId . ' با موفقیت ارسال شد و در صف ارزیابی قرار گرفت.');
             }
         }
@@ -163,7 +150,7 @@ $preselect = (int)($_GET['process'] ?? $_POST['process_id'] ?? 0);
 
 <?php if ($canSubmit): ?>
 <div class="card">
-    <h2>💡 ثبت درخواست بهبود جدید</h2>
+    <h2><?= app_icon('bulb', '', 20) ?> ثبت درخواست بهبود جدید</h2>
     <form method="post" onsubmit="const b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerText='در حال ثبت...';}">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 16px">
