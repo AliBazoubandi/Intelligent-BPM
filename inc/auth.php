@@ -9,10 +9,17 @@ require_once __DIR__ . '/../config.php';
 function auth_session_start(): void
 {
     if (session_status() === PHP_SESSION_NONE) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (!empty($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
+            || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+
+        @ini_set('session.use_strict_mode', '1');
         session_name('OPSESS');
         session_start([
             'cookie_httponly' => true,
             'cookie_samesite' => 'Lax',
+            'cookie_secure'   => $isHttps,
+            'use_strict_mode' => 1,
         ]);
     }
 }
@@ -40,6 +47,18 @@ function current_identity(?string $area = null): ?array
     return $user ?? $_SESSION['op_team'] ?? $_SESSION['op_identity'] ?? null;
 }
 
+function current_user(): ?int
+{
+    $id = current_identity('user');
+    return ($id && !empty($id['id'])) ? (int)$id['id'] : null;
+}
+
+function current_team(): ?int
+{
+    $id = current_identity('team');
+    return ($id && !empty($id['id'])) ? (int)$id['id'] : null;
+}
+
 function csrf_token(): string
 {
     auth_session_start();
@@ -64,6 +83,7 @@ function area_login_url(string $area): string
 /**
  * اجبار به ورود در ناحیه مشخص؛ اگر نشست نبود یا ناحیه اشتباه بود
  * به صفحه ورود همان ناحیه ریدایرکت می‌شود.
+ * اعتبارسنجی مجدد وضعیت فعال بودن اکانت (Active=1) با کش ۶۰ ثانیه‌ای
  */
 function require_area(string $area): array
 {
@@ -72,7 +92,98 @@ function require_area(string $area): array
         header('Location: ' . area_login_url($area));
         exit;
     }
+
+    $now = time();
+    $cacheKey = 'active_check_' . $area;
+    $lastCheck = $_SESSION[$cacheKey] ?? 0;
+    if ($now - $lastCheck > 60) {
+        try {
+            $db = app_db();
+            $targetId = (int)($id['id'] ?? 0);
+            $isActive = false;
+            if ($area === 'user') {
+                $st = $db->prepare('SELECT Active FROM Personnel WHERE ID = ?');
+                if ($st) {
+                    $st->bind_param('i', $targetId);
+                    $st->execute();
+                    $res = $st->get_result()->fetch_assoc();
+                    $isActive = !empty($res['Active']);
+                    $st->close();
+                }
+            } elseif ($area === 'team') {
+                $st = $db->prepare('SELECT Active FROM ProcessTeams WHERE ID = ?');
+                if ($st) {
+                    $st->bind_param('i', $targetId);
+                    $st->execute();
+                    $res = $st->get_result()->fetch_assoc();
+                    $isActive = !empty($res['Active']);
+                    $st->close();
+                }
+            }
+            if (!$isActive) {
+                $_SESSION = [];
+                if (ini_get('session.use_cookies')) {
+                    $params = session_get_cookie_params();
+                    setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+                }
+                session_destroy();
+                header('Location: ' . area_login_url($area));
+                exit;
+            }
+            $_SESSION[$cacheKey] = $now;
+        } catch (Throwable) {}
+    }
+
     return $id;
+}
+
+/**
+ * بررسی محدودیت دفعات ورود ناموفق (Login Rate Limiter)
+ * حداکثر ۱۰ تلاش ناموفق در ۱۰ دقیقه گذشته؛ در غیر این صورت مسدودی موقت
+ *
+ * @param string $loginType ('user'|'team')
+ * @param string $identifier کد کاربری یا تیم
+ * @param int $maxAttempts حداکثر تلاش‌های مجاز (پیش‌فرض ۱۰)
+ * @param int $windowMinutes بازه زمانی به دقیقه (پیش‌فرض ۱۰)
+ * @return array ['locked' => bool, 'remaining' => int, 'wait_minutes' => int]
+ */
+function auth_check_login_rate_limit(string $loginType, string $identifier, int $maxAttempts = 10, int $windowMinutes = 10): array
+{
+    try {
+        $db = app_db();
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $st = $db->prepare(
+            "SELECT COUNT(*) AS fail_count 
+             FROM LoginLog 
+             WHERE LoginType = ? 
+               AND (Identifier = ? OR Ip = ?)
+               AND Success = 0 
+               AND LoggedAt >= DATE_SUB(NOW(), INTERVAL ? MINUTE)"
+        );
+        if (!$st) {
+            return ['locked' => false, 'remaining' => $maxAttempts, 'wait_minutes' => 0];
+        }
+        $st->bind_param('sssi', $loginType, $identifier, $ip, $windowMinutes);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+
+        $failCount = (int)($row['fail_count'] ?? 0);
+        if ($failCount >= $maxAttempts) {
+            return [
+                'locked' => true,
+                'remaining' => 0,
+                'wait_minutes' => $windowMinutes,
+            ];
+        }
+        return [
+            'locked' => false,
+            'remaining' => max(0, $maxAttempts - $failCount),
+            'wait_minutes' => 0,
+        ];
+    } catch (Throwable) {
+        return ['locked' => false, 'remaining' => $maxAttempts, 'wait_minutes' => 0];
+    }
 }
 
 /** اگر کاربر/تیم وارد شده بود، مستقیم به خانه همان ناحیه برود */
@@ -110,6 +221,7 @@ function attempt_user_login(string $code, string $password): ?array
         'id' => (int)$row['ID'],
         'code' => $row['PersonnelCode'],
         'name' => trim($row['Name'] . ' ' . $row['Family']),
+        'company_id' => !empty($row['CompanyID']) ? (int)$row['CompanyID'] : null,
         'company' => $row['CompanyName'],
         'team' => $row['TeamName'],
         'perms' => [
@@ -126,7 +238,7 @@ function attempt_team_login(string $code, string $password): ?array
 {
     $db = app_db();
     $st = $db->prepare(
-        'SELECT t.ID, t.TeamCode, t.TeamName, t.PasswordHash, c.Name AS CompanyName
+        'SELECT t.ID, t.TeamCode, t.TeamName, t.PasswordHash, t.CompanyID, t.IsAdmin, c.Name AS CompanyName
          FROM ProcessTeams t
          LEFT JOIN Companies c ON c.ID = t.CompanyID
          WHERE t.TeamCode = ? AND t.Active = 1'
@@ -144,8 +256,19 @@ function attempt_team_login(string $code, string $password): ?array
         'id' => (int)$row['ID'],
         'code' => $row['TeamCode'],
         'name' => $row['TeamName'],
+        'company_id' => !empty($row['CompanyID']) ? (int)$row['CompanyID'] : null,
         'company' => $row['CompanyName'],
+        'is_admin' => (int)($row['IsAdmin'] ?? 0),
     ];
+}
+
+/** آیا تیم جاری دارای دسترسی مدیر ارشد (IsAdmin) است؟ */
+function team_is_admin(?array $id = null): bool
+{
+    if ($id === null) {
+        $id = current_identity('team');
+    }
+    return !empty($id['is_admin']);
 }
 
 /** ثبت رویداد ورود در LoginLog */

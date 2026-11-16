@@ -20,17 +20,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($code === '' || $password === '') {
         $error = 'کد پرسنلی و رمز عبور را وارد کنید.';
     } else {
-        $identity = attempt_user_login($code, $password);
-        if ($identity) {
-            log_login('user', $identity['id'], $code, true);
-            session_regenerate_id(true);
-            $_SESSION['op_user'] = $identity;
-            $_SESSION['op_identity'] = $identity;
-            header('Location: home.php');
-            exit;
+        $rl = auth_check_login_rate_limit('user', $code);
+        if ($rl['locked']) {
+            $error = 'تعداد دفعات ورود ناموفق بیش از حد مجاز بوده است. لطفاً پس از ۱۰ دقیقه دوباره تلاش فرمایید.';
+        } else {
+            $identity = attempt_user_login($code, $password);
+            if ($identity) {
+                log_login('user', $identity['id'], $code, true);
+                session_regenerate_id(true);
+                $_SESSION['op_user'] = $identity;
+                $_SESSION['op_identity'] = $identity;
+                header('Location: home.php');
+                exit;
+            }
+            log_login('user', null, $code, false);
+            $error = 'کد پرسنلی یا رمز عبور اشتباه است.';
         }
-        log_login('user', null, $code, false);
-        $error = 'کد پرسنلی یا رمز عبور اشتباه است.';
     }
 }
 $csrf = csrf_token();
@@ -71,7 +76,7 @@ $csrf = csrf_token();
         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
         <label class="field">
             <span class="field-label">کد پرسنلی</span>
-            <input type="text" name="identifier" placeholder="مثلاً P-1001" value="<?= e($oldCode) ?>" required maxlength="30" autofocus>
+            <input type="text" name="identifier" placeholder="کد پرسنلی خود را وارد کنید" value="<?= e($oldCode) ?>" required maxlength="30" autofocus>
         </label>
         <label class="field">
             <span class="field-label">رمز عبور</span>
@@ -81,7 +86,6 @@ $csrf = csrf_token();
     </form>
 
     <p class="login-alt">عضو تیم فرآیند هستید؟ <a href="<?= TEAM_URL ?>/login.php">ورود تیم فرآیند</a></p>
-    <p class="login-hint">راهنمای تست: <code>P-1001</code> با رمز <code>123456</code></p>
 </main>
 <script>
 (function(){

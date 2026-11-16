@@ -1,6 +1,12 @@
 <?php
 require __DIR__ . '/../inc/auth.php';
 auth_session_start();
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_check($_POST['csrf'] ?? null)) {
+    header('Location: home.php');
+    exit;
+}
+
 unset($_SESSION['op_team']);
 if (isset($_SESSION['op_identity']) && ($_SESSION['op_identity']['kind'] ?? '') === 'team') {
     unset($_SESSION['op_identity']);

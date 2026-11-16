@@ -29,6 +29,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $pid = (int)($_POST['personnel_id'] ?? 0);
         $act = (string)($_POST['action'] ?? '');
+
+        // اگر تیم مدیر ارشد نباشد، تنها مجاز به ویرایش اعضای تیم خود است
+        if (!team_is_admin($id)) {
+            $stCheck = $db->prepare("SELECT TeamID FROM Personnel WHERE ID = ?");
+            $stCheck->bind_param('i', $pid);
+            $stCheck->execute();
+            $pRow = $stCheck->get_result()->fetch_assoc();
+            $stCheck->close();
+            if (!$pRow || (int)($pRow['TeamID'] ?? 0) !== (int)$id['id']) {
+                flash_set('error', 'شما فقط مجاز به ویرایش و مدیریت اعضای تیم خود هستید.');
+                header('Location: ' . $redirectUrl);
+                exit;
+            }
+        }
+
         if ($act === 'toggle') {
             $st = $db->prepare('UPDATE Personnel SET Active = 1 - Active WHERE ID = ?');
             $st->bind_param('i', $pid); $st->execute(); $st->close();
@@ -45,8 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $st->execute();
             $st->close();
 
-            // اگر سمتی انتخاب شده بود، شاغل آن سمت در جدول OrgPositions نیز ثبت شود
+            // اگر سمتی انتخاب شده بود، سمت قبلی این شخص تخلیه شده و سمت جدید به وی منتسب می‌شود
             if ($posId) {
+                $stClear = $db->prepare("UPDATE OrgPositions SET CurrentPersonnelID = NULL WHERE CurrentPersonnelID = ? AND ID != ?");
+                $stClear->bind_param('ii', $pid, $posId);
+                $stClear->execute();
+                $stClear->close();
+
                 $stP = $db->prepare("UPDATE OrgPositions SET CurrentPersonnelID = ? WHERE ID = ?");
                 $stP->bind_param('ii', $pid, $posId);
                 $stP->execute();

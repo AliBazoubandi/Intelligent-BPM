@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS ProcessTeams (
   LeaderPersonnelID INT UNSIGNED NULL COMMENT 'سرپرست تیم (از پرسنل)',
   Description VARCHAR(255) NOT NULL DEFAULT '',
   Active TINYINT(1) NOT NULL DEFAULT 1,
+  IsAdmin TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'تیم مدیر ارشد با اختیارات کامل مدیریتی',
   CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (ID),
   UNIQUE KEY uq_team_code (TeamCode),
@@ -166,6 +167,16 @@ CREATE TABLE IF NOT EXISTS Notifications (
   KEY idx_notification_process (ProcessID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لیست اطلاع‌رسانی‌ها';
 
+-- وضعیت خوانده شدن اعلان‌ها توسط هر کاربر/تیم (Per-recipient read tracking)
+CREATE TABLE IF NOT EXISTS NotificationReads (
+  NotificationID INT UNSIGNED NOT NULL,
+  ReaderType ENUM('user','team') NOT NULL,
+  ReaderID INT UNSIGNED NOT NULL,
+  ReadAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (NotificationID, ReaderType, ReaderID),
+  KEY idx_reader (ReaderType, ReaderID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='وضعیت خوانده شدن اعلان‌ها توسط هر کاربر/تیم';
+
 -- 9) صف کارهای پس‌زمینه هرمس (Hermes Background Tasks)
 CREATE TABLE IF NOT EXISTS HermesTasks (
   ID INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -176,6 +187,7 @@ CREATE TABLE IF NOT EXISTS HermesTasks (
   Payload MEDIUMTEXT NULL,
   Result MEDIUMTEXT NULL,
   ErrorMessage TEXT NULL,
+  LockedAt DATETIME NULL,
   CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (ID),
@@ -207,7 +219,8 @@ CREATE TABLE IF NOT EXISTS LoginLog (
   Ip VARCHAR(45) NOT NULL DEFAULT '',
   LoggedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (ID),
-  KEY idx_login_ref (LoginType, RefID)
+  KEY idx_login_ref (LoginType, RefID),
+  KEY idx_login_limit (LoginType, Identifier, LoggedAt)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='لاگ ورود‌ها';
 
 
