@@ -13,7 +13,7 @@
 
 **RabinFlow** is an enterprise-grade web application engineered to catalog, document, execute, and continuously optimize organizational business processes across departments. 
 
-It integrates an **Autonomous AI Agent (Hermes)** that acts as an impartial referee for proposed process improvements (checking against conflicting departmental procedures and ripple effects), automatically rewrites and compiles approved process guidelines into official PDF documents, and sends real-time notifications to process owners and affected stakeholders via **Bale Messenger**.
+It integrates an **Autonomous AI Agent (Hermes)** that acts as an impartial referee for proposed process improvements (checking against conflicting departmental procedures and ripple effects), automatically drafts and compiles approved process guidelines into official PDF documents with shaped Persian typography (**Vazirmatn**), and sends real-time notifications to process owners and affected stakeholders via **Bale Messenger**.
 
 ---
 
@@ -24,38 +24,47 @@ It integrates an **Autonomous AI Agent (Hermes)** that acts as an impartial refe
   - **Employee Portal (`/user`)**: Browse active company processes, view files, submit improvement proposals, track version changes, and ask questions.
   - **Process Engineering Console (`/team`)**: Full dossier management, version tracking, process editor, category definitions, company setups, organizational chart mapping, and improvement proposal reviews.
 - **🤖 Autonomous AI Improvement Referee & Document Compiler (Hermes)**:
-  - Non-blocking asynchronous background queue (`bin/hermes_worker.php`).
-  - Cross-process paradoxical checks, side-effect detection, and verdict generation (`approved` / `rejected` / `conditional`).
+  - Non-blocking asynchronous background queue (`bin/hermes_worker.php`) with atomic task locking.
+  - Cross-process paradoxical checks, side-effect detection, and verdict generation (`yes` / `no` / `uncertain`).
   - Automated official PDF guideline drafting, revision compiling, and version archiving.
+  - Interactive process design from audio interviews and documents with asynchronous transcription (`bin/transcribe_audio.py`).
 - **📱 Live Bale Messenger Integration (`inc/bale.php`)**:
   - Automated notification dispatch via Bale Messenger Gateway API (`https://api.example.com/api_send.php`).
+  - Strict TLS 1.2+ certificate verification.
   - Dynamic organizational chart lookups to notify process owners and affected personnel.
-  - Direct message delivery with document links and compiled PDF attachment files.
-- **📁 Smart Process File Manager (`/team/files.php`)**:
+  - Asynchronous background queue delivery for instant, non-blocking HTTP requests.
+- **📁 Secure Process File Manager (`/team/files.php` & `download.php`)**:
   - Interactive collapsible/expandable directory tree with live process dossier linking.
-  - Crisp, modern vector SVG icons for upload, folder creation, rename, move, view, download, and delete actions.
-  - Instant client-side filtering and file management modals.
+  - Multi-extension upload protection against malicious scripts (e.g. `*.php.*`).
+  - Authenticated and authorized file downloads (`download.php`) preventing direct unauthenticated URL scraping.
+  - Vector SVG icons for upload, folder creation, rename, move, view, download, and delete actions.
 - **💬 Process AI Chat & RAG Assistant (`/ask.php`)**:
   - Natural language Persian chat assistant grounded in official company process files and guidelines.
+  - High-performance disk caching (`RagDocumentCache`) avoiding redundant full-disk scans.
   - Real-time typing indicators, quick prompt chips, and instant process dossier citations.
+- **📄 Official PDF Publishing Engine (`inc/pdf_generator.php`)**:
+  - Unified mPDF document generator with native Persian font shaping (**Vazirmatn**).
+  - Standardized organizational headers, metadata blocks, flow steps, and revision logs.
 - **📅 Comprehensive Jalali (Shamsi) Calendar**:
   - Standardized Shamsi date formatting across all tables, logs, and notifications.
   - Clear date-before-time ordering (`YYYY/MM/DD - HH:MM`).
 - **🎨 Modern Persian Design System**:
-  - Native **Mikhak** Persian font typography.
-  - Lightweight vector SVG icon library (`inc/icons.php`).
-  - Adaptive Light & Dark themes with high-contrast form controls and custom-styled checkboxes.
+  - Native **Mikhak** and **Vazirmatn** typography.
+  - Unified vector SVG icon library (`inc/icons.php`).
+  - Adaptive Light & Dark themes with high-contrast form controls and custom-styled inputs.
 
 ---
 
 ## 🛠️ Tech Stack & Requirements
 
-- **PHP**: 8.1+ (with `mysqli`, `curl`, `mbstring`, `json`)
+- **PHP**: 8.2+ (with `mysqli`, `curl`, `mbstring`, `json`, `gd`)
 - **Database**: MySQL 8.0+ / MariaDB 10.4+
+- **PDF Engine**: mPDF 8+ with Vazirmatn Persian TrueType fonts
+- **Python**: 3.10+ (for background audio transcription and text extraction)
 - **AI Engine**: Hermes AI Agent (`http://127.0.0.1:8642/v1`)
 - **Messenger API**: Bale Messenger Gateway API
 - **Frontend**: Vanilla ES6 JavaScript, Modern CSS3 with Design Tokens, Mikhak Font
-- **Web Server**: Apache (`mod_rewrite` enabled) or PHP Built-in Server
+- **Web Server**: Apache (`mod_rewrite` enabled) or PHP Built-in Server with `bin/router.php`
 
 ---
 
@@ -70,6 +79,9 @@ copy .env.example .env
 
 Edit `.env` to configure your database, Hermes credentials, and Bale settings:
 ```ini
+APP_ENV=dev
+APP_URL=http://localhost:8000
+
 DB_HOST=localhost
 DB_USER=root
 DB_PASS=
@@ -84,18 +96,18 @@ BALE_API_KEY=your_bale_api_key_here
 BALE_API_ENABLED=true
 ```
 
-### 2. Run Database & Seed Wizard
+### 2. Initialize Database & Schemas
 Run the installer via CLI:
 ```bash
 php install.php
 ```
-*Or visit `http://localhost:8000/install.php` in your browser.*
+*(In `APP_ENV=dev`, the installer automatically seeds default test departments, personnel, and sample processes).*
 
 ### 3. Start Application Server (1-Click)
 
-Simply double-click `start.bat` (or `run.bat`) in the project root, or execute:
+Simply double-click `run.bat` (or `srun.bat` / `start.bat`) in the project root, or execute:
 ```cmd
-start.bat
+run.bat
 ```
 *(On PowerShell, you can also run `.\start.ps1`, or `php bin/serve.php`)*
 
@@ -103,17 +115,19 @@ This script automatically:
 1. Detects and verifies the PHP runtime and required extensions.
 2. Checks MySQL/MariaDB and starts the database daemon automatically if not yet running.
 3. Checks connectivity to the Hermes AI agent service.
-4. Opens `http://localhost:8000/` in your default web browser.
-5. Displays test credentials for both User and Team consoles.
+4. Boots the PHP web server with `bin/router.php` firewall protecting sensitive files.
+5. Opens `http://localhost:8000/` in your default web browser.
 
 To stop the server at any time, press `Ctrl+C` in the console window or run `stop.bat`.
 
-### 4. Portals & Default Credentials
+### 4. Development Accounts (Seeded in Dev Mode)
 
-| Portal | URL | Default Identifier | Default Password |
+| Portal | URL | Identifier | Initial Password |
 | :--- | :--- | :--- | :--- |
 | **Employee Portal** | `http://localhost:8000/user/` | `P-1001` | `123456` |
 | **Team Engineering Console** | `http://localhost:8000/team/` | `TP-1000` | `team123` |
+
+> *Note: For security, login forms implement rate limiting (locked after 10 consecutive failed attempts for 10 minutes).*
 
 ---
 
@@ -121,23 +135,28 @@ To stop the server at any time, press `Ctrl+C` in the console window or run `sto
 
 ```text
 rabinflow/
-├── assets/                  # Mikhak fonts, stylesheets & design tokens
-│   ├── fonts/mikhak/        # Mikhak font families (Variable + Static + FD)
+├── assets/                  # Mikhak & Vazirmatn fonts, stylesheets & design tokens
+│   ├── fonts/               # Vazirmatn TTF fonts for official PDF generation
+│   ├── fonts/mikhak/        # Mikhak font families for web interface
 │   ├── mikhak.css           # Typography font-face declarations
 │   └── style.css            # Unified application styles & adaptive theme tokens
-├── bin/                     # CLI workers & dev tools
+├── bin/                     # CLI workers & server tooling
 │   ├── hermes_worker.php    # Async background task for AI evaluations & revisions
-│   └── serve.php            # Multi-platform local server launcher
+│   ├── router.php           # Built-in web server security firewall & router
+│   ├── serve.php            # Multi-platform local server launcher
+│   ├── transcribe_audio.py  # Asynchronous speech-to-text Python helper
+│   └── extract_document_text.py # Document extraction helper (.docx, .pdf, .txt)
 ├── db/                      # Database schema & migrations
 │   └── schema.sql           # Canonical relational schema
 ├── inc/                     # Reusable backend core modules
-│   ├── auth.php             # Authentication, CSRF, security headers
-│   ├── bale.php             # Bale Messenger integration & automated dispatch
+│   ├── auth.php             # Authentication, session security & rate limiting
+│   ├── bale.php             # Bale Messenger integration & async queue dispatch
 │   ├── chat_view.php        # Process AI Chat view controller
-│   ├── files.php            # File attachments & security utilities
-│   ├── hermes.php           # Hermes API client, RAG engine, evaluators
+│   ├── files.php            # File attachments & extension security filters
+│   ├── hermes.php           # Hermes API client, RAG engine & process compiler
 │   ├── icons.php            # Unified SVG vector icon catalog
-│   ├── layout.php           # Responsive header & footer layouts
+│   ├── layout.php           # Responsive header/footer layouts & notification toasts
+│   ├── pdf_generator.php    # Unified mPDF document compilation engine
 │   └── ui.php               # Jalali dates, Persian numbers & status badges
 ├── processes/               # Departmental process documents & guidelines
 │   ├── اداری و مالی/
@@ -147,19 +166,27 @@ rabinflow/
 │   └── پشتیبانی و خدمات/
 ├── team/                    # Process engineering team management portal
 ├── user/                    # Employee self-service portal
-├── config.php               # Environment loader & global constants
-├── index.php                # Gateway router
+├── config.php               # Environment loader, security constants & DB connection
+├── download.php             # Authenticated file download gateway
+├── index.php                # Landing page & router
 ├── install.php              # Automated initialization wizard
-├── start.bat                # 1-Click Windows Command Prompt launcher
-├── start.ps1                # 1-Click PowerShell launcher
+├── run.bat                  # 1-Click launcher
+├── srun.bat                 # 1-Click launcher alias
+├── start.bat                # Windows Command Prompt launcher
+├── start.ps1                # PowerShell launcher
 └── stop.bat                 # Server stop utility
 ```
 
 ---
 
-## 🔒 Security
+## 🔒 Security Hardening
 
-- Parameterized SQL statements with `mysqli` prepared queries throughout.
-- Built-in CSRF token protection for state-changing forms and AJAX endpoints.
-- `.htaccess` access-denial guards across all document upload directories.
-- Sensitive environment variables isolated in `.env` (ignored by git).
+- **Built-in Router Firewall (`bin/router.php`)**: Strictly blocks direct web access to `.env`, `.sql`, `.log`, `.md`, `db/`, `bin/`, `inc/`, and internal configuration files (`403 Forbidden`).
+- **Protected Process Documents (`download.php`)**: Direct HTTP access to `processes/` is denied (`Require all denied`). All file downloads require valid active session authentication and authorization.
+- **Strict Extension Filtering**: Multi-extension upload/rename protection (`fm_allowed_ext()`) prevents code execution via disguised filenames (e.g. `shell.php.txt`).
+- **XSS Sanitization**: Automated output escaping via `e()` and client-side `escapeHtml()` with strict URL validation (`is_safe_app_url()`).
+- **Brute-Force & Rate Limiting**: Automatic account/IP lockout for 10 minutes upon 10 failed login attempts.
+- **CSRF Token Protection**: Cryptographically secure tokens (`random_bytes(16)` + `hash_equals()`) enforced on all state-changing POST requests.
+- **Atomic File Operations & Transactions**: Procedure revisions and process creations execute within DB transactions (`begin_transaction`), staging files in temporary directories and rolling back automatically on failure.
+- **Independent Notification Read Tracking**: `NotificationReads` tracks read status per individual user/team, ensuring broadcast notifications remain unread for other users.
+- **Strict TLS Verification**: All communications with Bale Messenger API enforce TLS certificate and host verification.

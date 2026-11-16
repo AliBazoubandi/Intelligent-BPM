@@ -16,11 +16,29 @@ $out = function (string $m) use ($isCli) {
     echo $isCli ? $m . PHP_EOL : '<p style="font-family:Tahoma">' . htmlspecialchars($m, ENT_QUOTES, 'UTF-8') . '</p>';
 };
 
+// اگر از طریق وب فراخوانی شود: احراز هویت تیم و توکن اختصاصی یک‌بارمصرف SETUP_TOKEN الزامی است
+if (!$isCli) {
+    require_once __DIR__ . '/inc/auth.php';
+    auth_session_start();
+    $teamId = current_identity('team');
+    $setupToken = (string)env('SETUP_TOKEN');
+    $providedToken = (string)($_POST['setup_token'] ?? $_GET['setup_token'] ?? '');
+
+    if ($setupToken === '' || !hash_equals($setupToken, $providedToken)) {
+        http_response_code(403);
+        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: اجرای نصب از طریق وب نیازمند ارائه توکن معتبر (SETUP_TOKEN) در پارامتر درخواست است.</p>');
+    }
+    if (!$teamId) {
+        http_response_code(403);
+        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: برای اجرای نصب از وب، نشست ورود معتبر تیم الزامی است.</p>');
+    }
+}
+
 $lockFile = __DIR__ . '/.installed';
 if (file_exists($lockFile)) {
     $canForce = ($isCli && in_array('--force', $argv ?? [], true));
     if (!$canForce) {
-        die('<p style="font-family:Tahoma;color:#b00">سامانه از قبل نصب شده است. برای اجرای مجدد، فایل <code>.installed</code> را در سرور حذف کرده یا از خط فرمان با سوئیچ <code>--force</code> اجرا نمایید.</p>');
+        die('<p style="font-family:Tahoma;color:#b00">سامانه از قبل نصب شده است. برای اجرای مجدد، از خط فرمان با سوئیچ <code>--force</code> اجرا نمایید.</p>');
     }
 }
 
@@ -32,13 +50,32 @@ $conn->query('CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8
 $conn->select_db(DB_NAME);
 $out('دیتابیس ' . DB_NAME . ' آماده است.');
 
-/* 2) اجرای اسکیما */
+// بررسی وضعیت قفل نصب در دیتابیس (جلوگیری از نصب مجدد حتی در صورت حذف فایل قفل)
+$tblRes = $conn->query("SHOW TABLES LIKE 'SystemSettings'");
+if ($tblRes && $tblRes->num_rows > 0) {
+    $stCheck = $conn->query("SELECT SettingValue FROM SystemSettings WHERE SettingKey = 'installed' LIMIT 1");
+    if ($stCheck && $r = $stCheck->fetch_assoc()) {
+        if ($r['SettingValue'] === '1' && !($isCli && in_array('--force', $argv ?? [], true))) {
+            http_response_code(403);
+            die('<p style="font-family:Tahoma;color:#b00">سامانه قبلاً در پایگاه‌داده به عنوان نصب‌شده ثبت گردیده است و اجرای مجدد مسدود می‌باشد.</p>');
+        }
+    }
+}
+
+/* 2) اجرای اسکیما با بررسی خطا پس از هر دستور */
 $schema = file_get_contents(__DIR__ . '/db/schema.sql');
 if ($schema === false) {
     throw new RuntimeException('فایل db/schema.sql خوانده نشد.');
 }
 $conn->multi_query($schema);
-while ($conn->more_results() && $conn->next_result()) { /* مصرف نتایج */ }
+do {
+    if ($res = $conn->store_result()) {
+        $res->free();
+    }
+    if ($conn->errno) {
+        throw new RuntimeException('خطا در اجرای اسکیما: ' . $conn->error);
+    }
+} while ($conn->more_results() && $conn->next_result());
 if ($conn->errno) {
     throw new RuntimeException('خطا در اسکیما: ' . $conn->error);
 }
@@ -72,54 +109,61 @@ foreach ($categoryFolders as $folder) {
 sync_categories($conn);
 $out('دسته‌های فرآیند با فولدرها همگام شدند.');
 
-/* 5) داده نمونه در اولین نصب */
-$row = $conn->query('SELECT COUNT(*) c FROM Companies')->fetch_assoc();
-if ((int)$row['c'] === 0) {
-    $st = $conn->prepare("INSERT INTO Companies (Name) VALUES (?)");
-    $companyName = 'شرکت نمونه';
-    $st->bind_param('s', $companyName);
-    $st->execute();
-    $companyId = (int)$conn->insert_id;
-    $st->close();
-
-    // تیم فرآیند نمونه — رمز: team123
-    $teamName = 'تیم فرآیند اداری';
-    $teamCode = 'TP-1000';
-    $teamPass = password_hash('team123', PASSWORD_DEFAULT);
-    $desc = 'تیم مسئول فرآیندهای اداری و مالی';
-    $st = $conn->prepare("INSERT INTO ProcessTeams (TeamName, TeamCode, PasswordHash, CompanyID, Description) VALUES (?,?,?,?,?)");
-    $st->bind_param('sssis', $teamName, $teamCode, $teamPass, $companyId, $desc);
-    $st->execute();
-    $teamId = (int)$conn->insert_id;
-    $st->close();
-
-    // پرسنل نمونه — رمز: 123456
-    $hash = password_hash('123456', PASSWORD_DEFAULT);
-    $persons = [
-        ['P-1001', 'مریم', 'رضایی', 1, 1, 1, 0], // درخواست + جستجو + بهبود
-        ['P-1002', 'علی', 'محمدی', 0, 1, 1, 0],  // جستجو + بهبود
-        ['P-1003', 'سارا', 'کاظمی', 1, 1, 1, 1], // همه اجازه‌ها
-    ];
-    $st = $conn->prepare(
-        "INSERT INTO Personnel (PersonnelCode, Name, Family, CompanyID, TeamID, CanRequest, CanSearch, CanImprove, CanApprove, PasswordHash)
-         VALUES (?,?,?,?,?,?,?,?,?,?)"
-    );
-    foreach ($persons as [$code, $name, $family, $canReq, $canSearch, $canImp, $canAppr]) {
-        $st->bind_param('sssiiiiiis', $code, $name, $family, $companyId, $teamId, $canReq, $canSearch, $canImp, $canAppr, $hash);
-        $st->execute();
-    }
-    $st->close();
-    $out('داده نمونه درج شد (تیم: ' . $teamCode . ' / team123 — پرسنل: P-1001 تا P-1003 با رمز 123456).');
+/* 5) داده نمونه در اولین نصب (تنها در محیط dev) */
+$isDev = (env('APP_ENV') === 'dev');
+if (!$isDev) {
+    $out('محیط غیرتوسعه‌ای: از ایجاد داده‌های نمونه و حساب‌های آزمایشی با رمز پیش‌فرض صرف‌نظر شد (تنها در APP_ENV=dev فعال است).');
 } else {
-    $out('داده نمونه از قبل وجود دارد؛ درج نشد.');
+    $row = $conn->query('SELECT COUNT(*) c FROM Companies')->fetch_assoc();
+    if ((int)$row['c'] === 0) {
+        $st = $conn->prepare("INSERT INTO Companies (Name) VALUES (?)");
+        $companyName = 'شرکت نمونه';
+        $st->bind_param('s', $companyName);
+        $st->execute();
+        $companyId = (int)$conn->insert_id;
+        $st->close();
+
+        // تیم فرآیند نمونه — رمز: team123
+        $teamName = 'تیم فرآیند اداری';
+        $teamCode = 'TP-1000';
+        $teamPass = password_hash('team123', PASSWORD_DEFAULT);
+        $desc = 'تیم مسئول فرآیندهای اداری و مالی';
+        $st = $conn->prepare("INSERT INTO ProcessTeams (TeamName, TeamCode, PasswordHash, CompanyID, Description) VALUES (?,?,?,?,?)");
+        $st->bind_param('sssis', $teamName, $teamCode, $teamPass, $companyId, $desc);
+        $st->execute();
+        $teamId = (int)$conn->insert_id;
+        $st->close();
+
+        // پرسنل نمونه — رمز: 123456
+        $hash = password_hash('123456', PASSWORD_DEFAULT);
+        $persons = [
+            ['P-1001', 'مریم', 'رضایی', 1, 1, 1, 0], // درخواست + جستجو + بهبود
+            ['P-1002', 'علی', 'محمدی', 0, 1, 1, 0],  // جستجو + بهبود
+            ['P-1003', 'سارا', 'کاظمی', 1, 1, 1, 1], // همه اجازه‌ها
+        ];
+        $st = $conn->prepare(
+            "INSERT INTO Personnel (PersonnelCode, Name, Family, CompanyID, TeamID, CanRequest, CanSearch, CanImprove, CanApprove, PasswordHash)
+             VALUES (?,?,?,?,?,?,?,?,?,?)"
+        );
+        foreach ($persons as [$code, $name, $family, $canReq, $canSearch, $canImp, $canAppr]) {
+            $st->bind_param('sssiiiiiis', $code, $name, $family, $companyId, $teamId, $canReq, $canSearch, $canImp, $canAppr, $hash);
+            $st->execute();
+        }
+        $st->close();
+        $out('داده نمونه درج شد (تیم: ' . $teamCode . ' / team123 — پرسنل: P-1001 تا P-1003 با رمز 123456).');
+    } else {
+        $out('داده نمونه از قبل وجود دارد؛ درج نشد.');
+    }
 }
 
 /* 6) داده نمونه فرآیندها، بهبودها و تغییرات */
-$pc = (int)$conn->query('SELECT COUNT(*) c FROM Processes')->fetch_assoc()['c'];
-if ($pc === 0) {
-    seed_demo_processes($conn, $out);
-} else {
-    $out('فرآیندهای نمونه از قبل وجود دارد؛ درج نشد.');
+if ($isDev) {
+    $pc = (int)$conn->query('SELECT COUNT(*) c FROM Processes')->fetch_assoc()['c'];
+    if ($pc === 0) {
+        seed_demo_processes($conn, $out);
+    } else {
+        $out('فرآیندهای نمونه از قبل وجود دارد؛ درج نشد.');
+    }
 }
 
 /* 7) مجریان نمونه */
@@ -147,6 +191,8 @@ if ($ex === 0) {
 }
 
 $out('نصب با موفقیت انجام شد.');
+$conn->query("CREATE TABLE IF NOT EXISTS SystemSettings (SettingKey VARCHAR(64) PRIMARY KEY, SettingValue TEXT NOT NULL, UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+$conn->query("INSERT INTO SystemSettings (SettingKey, SettingValue) VALUES ('installed', '1') ON DUPLICATE KEY UPDATE SettingValue='1'");
 @file_put_contents($lockFile, date('Y-m-d H:i:s'));
 
 /* ---------- توابع ---------- */
@@ -195,17 +241,20 @@ function seed_demo_processes(mysqli $conn, callable $out): void
     $st->close();
     $out('۹ فرآیند نمونه با پوشه و فایل نمونه ساخته شد.');
 
-    // دو بهبود از سوی P-1001 (شناسه ۱)
-    $st = $conn->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
+    // دو بهبود از سوی P-1001 (شناسه ۱) با Prepared Statementهای مجزا
+    $st1 = $conn->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
     $procNameLeave = 'درخواست مرخصی';
-    $st->bind_param('s', $procNameLeave);
-    $st->execute();
-    $pidLeave = (int)($st->get_result()->fetch_assoc()['ID'] ?? 0);
+    $st1->bind_param('s', $procNameLeave);
+    $st1->execute();
+    $pidLeave = (int)($st1->get_result()->fetch_assoc()['ID'] ?? 0);
+    $st1->close();
 
-    $procNameLeave = 'صدور دسترسی شبکه';
-    $st->execute();
-    $pidAccess = (int)($st->get_result()->fetch_assoc()['ID'] ?? 0);
-    $st->close();
+    $st2 = $conn->prepare("SELECT ID FROM Processes WHERE Name = ? LIMIT 1");
+    $procNameAccess = 'صدور دسترسی شبکه';
+    $st2->bind_param('s', $procNameAccess);
+    $st2->execute();
+    $pidAccess = (int)($st2->get_result()->fetch_assoc()['ID'] ?? 0);
+    $st2->close();
 
     $reqType = 'user'; $reqId = 1;
     $st = $conn->prepare("INSERT INTO Improvements (ProcessID, requester_type, requester_id, Title, Description, Status) VALUES (?,?,?,?,?,?)");
