@@ -10,6 +10,8 @@
 # Temporary & cache
 *.log
 .installed
+__pycache__/
+*.pyc
 
 # Composer dependencies
 /vendor/

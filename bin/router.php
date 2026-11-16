@@ -10,6 +10,8 @@
  *  - Returns false ONLY for allowed static assets so php -S serves them with native MIME types.
  */
 
+require_once dirname(__DIR__) . '/config.php';
+
 // 1. Extract requested URI and path
 $rawUri = $_SERVER['REQUEST_URI'] ?? '/';
 $parsedPath = parse_url($rawUri, PHP_URL_PATH);
@@ -69,7 +71,8 @@ if (preg_match('#^/processes/(.+)$#i', $path, $pMatches)) {
         $deny('Direct execution or access to executable files is forbidden');
     }
     // Redirect securely to authenticated download endpoint
-    header('Location: /download.php?path=' . rawurlencode($relFile));
+    $baseUrl = defined('BASE_URL') ? BASE_URL : '';
+    header('Location: ' . $baseUrl . '/download.php?path=' . rawurlencode($relFile));
     exit;
 }
 if (preg_match('#^/processes(/|$)#i', $path)) {

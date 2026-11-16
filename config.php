@@ -83,6 +83,12 @@ define('HERMES_TIMEOUT', (int)env('HERMES_TIMEOUT', 120));
 // مسیر باینری PHP برای پردازش پس‌زمینه (Worker)
 define('PHP_BIN', (string)env('PHP_BIN', ''));
 
+// مسیر باینری Python برای پردازش فایل‌های صوتی و اسناد docx
+define('PYTHON_BIN', (string)env('PYTHON_BIN', ''));
+
+// موتور تبدیل گفتار به متن: local (محلی و درون‌سازمانی با Whisper) یا google (سرویس ابری)
+define('TRANSCRIBE_ENGINE', strtolower((string)env('TRANSCRIBE_ENGINE', 'local')));
+
 // تنظیمات اتصال به وب‌سرویس پیام‌رسان بله (Bale Messenger API)
 define('BALE_API_URL', (string)env('BALE_API_URL', 'https://api.example.com/api_send.php'));
 define('BALE_API_KEY', (string)env('BALE_API_KEY', ''));

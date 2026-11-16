@@ -11,34 +11,76 @@
  */
 require __DIR__ . '/config.php';
 
-$isCli = PHP_SAPI === 'cli';
+$isCli = (PHP_SAPI === 'cli') && empty($_SERVER['REQUEST_METHOD']);
 $out = function (string $m) use ($isCli) {
     echo $isCli ? $m . PHP_EOL : '<p style="font-family:Tahoma">' . htmlspecialchars($m, ENT_QUOTES, 'UTF-8') . '</p>';
 };
-
-// اگر از طریق وب فراخوانی شود: احراز هویت تیم و توکن اختصاصی یک‌بارمصرف SETUP_TOKEN الزامی است
-if (!$isCli) {
-    require_once __DIR__ . '/inc/auth.php';
-    auth_session_start();
-    $teamId = current_identity('team');
-    $setupToken = (string)env('SETUP_TOKEN');
-    $providedToken = (string)($_POST['setup_token'] ?? $_GET['setup_token'] ?? '');
-
-    if ($setupToken === '' || !hash_equals($setupToken, $providedToken)) {
-        http_response_code(403);
-        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: اجرای نصب از طریق وب نیازمند ارائه توکن معتبر (SETUP_TOKEN) در پارامتر درخواست است.</p>');
-    }
-    if (!$teamId) {
-        http_response_code(403);
-        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: برای اجرای نصب از وب، نشست ورود معتبر تیم الزامی است.</p>');
-    }
-}
 
 $lockFile = __DIR__ . '/.installed';
 if (file_exists($lockFile)) {
     $canForce = ($isCli && in_array('--force', $argv ?? [], true));
     if (!$canForce) {
         die('<p style="font-family:Tahoma;color:#b00">سامانه از قبل نصب شده است. برای اجرای مجدد، از خط فرمان با سوئیچ <code>--force</code> اجرا نمایید.</p>');
+    }
+}
+
+// اگر از طریق وب فراخوانی شود: احراز هویت تیم و توکن اختصاصی یک‌بارمصرف SETUP_TOKEN الزامی است
+if (!$isCli) {
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        ?>
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نصب سامانه رابین‌فلو</title>
+<link rel="stylesheet" href="assets/mikhak.css">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#f8fafc; font-family:Mikhak, Tahoma, sans-serif; margin:0; padding:20px; box-sizing:border-box; }
+.card { background:#fff; border-radius:14px; padding:32px; box-shadow:0 10px 25px -5px rgba(0,0,0,0.08); width:100%; max-width:440px; border:1px solid #e2e8f0; }
+.btn-primary { width:100%; padding:11px; background:#2563eb; color:#fff; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer; font-family:inherit; }
+.btn-primary:hover { background:#1d4ed8; }
+</style>
+</head>
+<body>
+<div class="card">
+    <div style="text-align:center;margin-bottom:20px">
+        <h2 style="margin:0 0 8px 0;color:#0f172a">راه‌اندازی و نصب سامانه رابین‌فلو</h2>
+        <p style="color:#64748b;font-size:13px;line-height:1.7;margin:0">جهت اجرای ایمن نصب از طریق وب، لطفاً توکن امنیتی <code>SETUP_TOKEN</code> تعریف‌شده در فایل <code>.env</code> را وارد فرمایید.</p>
+    </div>
+    <form method="post" action="install.php">
+        <label class="field" style="display:block;margin-bottom:18px">
+            <span class="field-label" style="display:block;font-weight:bold;margin-bottom:6px;font-size:13px">توکن امنیتی (SETUP_TOKEN)</span>
+            <input type="password" name="setup_token" placeholder="توکن امنیتی تعریف‌شده در .env" required style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;font-family:inherit">
+        </label>
+        <button type="submit" class="btn-primary">شروع نصب و مقداردهی اولیه پایگاه‌داده</button>
+    </form>
+</div>
+</body>
+</html>
+        <?php
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: متد درخواست مجاز نیست.</p>');
+    }
+
+    require_once __DIR__ . '/inc/auth.php';
+    auth_session_start();
+    $teamId = current_identity('team');
+    $setupToken = (string)env('SETUP_TOKEN');
+    $providedToken = (string)($_POST['setup_token'] ?? '');
+
+    if ($setupToken === '' || !hash_equals($setupToken, $providedToken)) {
+        http_response_code(403);
+        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: توکن ارائه‌شده (SETUP_TOKEN) نامعتبر است یا در تنظیمات سرور تعریف نشده است.</p>');
+    }
+    if (!$teamId) {
+        http_response_code(403);
+        die('<p style="font-family:Tahoma;color:#b00">خطای امنیتی: برای اجرای نصب از وب، ورود معتبر تیم در سامانه الزامی است.</p>');
     }
 }
 

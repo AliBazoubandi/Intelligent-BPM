@@ -103,6 +103,19 @@ php install.php
 ```
 *(In `APP_ENV=dev`, the installer automatically seeds default test departments, personnel, and sample processes).*
 
+Alternatively, install via web/curl (requires `ALLOW_INSTALL=1` and authenticated team session):
+```bash
+curl -X POST -F "setup_token=YOUR_SETUP_TOKEN" -b "OPSESS=..." http://localhost:8000/install.php
+```
+
+### Audio Transcription Engines (Speech-to-Text)
+
+RabinFlow supports two speech recognition modes for process discovery from interview audio:
+- **Local On-Premise Engine (`TRANSCRIBE_ENGINE=local`, Default)**: Privacy-first, air-gapped transcription using `faster-whisper` on CPU (int8 quantization). Audio data never leaves the local network.
+  - Dependencies: `ffmpeg` (installed and in PATH), and `pip install faster-whisper`
+- **Google Cloud Speech Engine (`TRANSCRIBE_ENGINE=google`)**: Cloud transcription via Google Speech API over HTTPS.
+  - Dependencies: `ffmpeg`, and `pip install SpeechRecognition`
+
 ### 3. Start Application Server (1-Click)
 
 Simply double-click `run.bat` (or `srun.bat` / `start.bat`) in the project root, or execute:

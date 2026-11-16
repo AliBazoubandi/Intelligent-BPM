@@ -287,6 +287,87 @@ function worker_run_bale_broadcast_task(mysqli $db, int $taskId): bool
 }
 
 /**
+ * اجرای پردازش صوت مصاحبه و تبدیل به متن (Audio Transcription Task)
+ */
+function worker_run_audio_transcription_task(mysqli $db, int $taskId): bool
+{
+    $st = $db->prepare("SELECT ID, TaskType, Status, Payload FROM HermesTasks WHERE ID = ?");
+    $st->bind_param('i', $taskId);
+    $st->execute();
+    $task = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    if (!$task || $task['TaskType'] !== 'audio_transcription') {
+        echo "-> ERROR: Audio Task #{$taskId} invalid or not found.\n";
+        return false;
+    }
+
+    if ($task['Status'] === 'completed' || $task['Status'] === 'failed') {
+        echo "-> Audio Task #{$taskId} is already {$task['Status']}.\n";
+        return true;
+    }
+
+    $payload = json_decode((string)$task['Payload'], true) ?: [];
+    $filePath = (string)($payload['file_path'] ?? '');
+
+    $tempDir = realpath(sys_get_temp_dir());
+    $realAudioPath = ($filePath !== '' && file_exists($filePath)) ? realpath($filePath) : false;
+
+    // اعتبارسنجی امنیتی مسیر فایل: باید داخل پوشه موقت سیستم و با پیشوند rf_audio_ باشد
+    $isValidPath = (
+        $realAudioPath !== false &&
+        is_file($realAudioPath) &&
+        $tempDir !== false &&
+        str_starts_with($realAudioPath, $tempDir . DIRECTORY_SEPARATOR) &&
+        str_starts_with(basename($realAudioPath), 'rf_audio_')
+    );
+
+    try {
+        if (!$isValidPath) {
+            $errMsg = 'فایل صوتی نامعتبر است یا در مسیر مجاز قرار ندارد.';
+            $st = $db->prepare("UPDATE HermesTasks SET Status = 'failed', ErrorMessage = ?, UpdatedAt = NOW() WHERE ID = ?");
+            $st->bind_param('si', $errMsg, $taskId);
+            $st->execute();
+            $st->close();
+            echo "-> ERROR: Audio Task #{$taskId} rejected: invalid temp file path.\n";
+            return false;
+        }
+
+        echo "-> Running Audio Transcription Task #{$taskId} for [{$filePath}]...\n";
+        require_once __DIR__ . '/../inc/hermes.php';
+        $res = hermes_transcribe_audio($realAudioPath);
+
+        if (!empty($res['success'])) {
+            $resultData = [
+                'text' => trim((string)($res['text'] ?? '')),
+                'partial' => !empty($res['partial']),
+                'message' => $res['message'] ?? null,
+            ];
+            $resJson = json_encode($resultData, JSON_UNESCAPED_UNICODE);
+            $st = $db->prepare("UPDATE HermesTasks SET Status = 'completed', Result = ?, ErrorMessage = NULL, UpdatedAt = NOW() WHERE ID = ?");
+            $st->bind_param('si', $resJson, $taskId);
+            $st->execute();
+            $st->close();
+            echo "-> SUCCESS: Audio Transcription Task #{$taskId} completed.\n";
+            return true;
+        } else {
+            $errMsg = (string)($res['error'] ?? 'خطا در تبدیل صوت به متن.');
+            $st = $db->prepare("UPDATE HermesTasks SET Status = 'failed', ErrorMessage = ?, UpdatedAt = NOW() WHERE ID = ?");
+            $st->bind_param('si', $errMsg, $taskId);
+            $st->execute();
+            $st->close();
+            echo "-> FAILED: Audio Transcription Task #{$taskId} failed: {$errMsg}\n";
+            return false;
+        }
+    } finally {
+        // حذف همیشگی فایل موقت پس از اتمام پردازش (موفقیت یا خطا)
+        if ($realAudioPath !== false && file_exists($realAudioPath) && is_file($realAudioPath)) {
+            @unlink($realAudioPath);
+        }
+    }
+}
+
+/**
  * هدایت اجرای تسک بر اساس نوع TaskType
  */
 function worker_route_task(mysqli $db, int $taskId): bool
@@ -320,7 +401,21 @@ function worker_route_task(mysqli $db, int $taskId): bool
         return worker_run_bale_broadcast_task($db, $taskId);
     }
 
-    return worker_run_revision_task($db, $taskId);
+    if ($task['TaskType'] === 'audio_transcription') {
+        return worker_run_audio_transcription_task($db, $taskId);
+    }
+
+    if ($task['TaskType'] === 'revision') {
+        return worker_run_revision_task($db, $taskId);
+    }
+
+    $errMsg = 'نوع تسک ناشناخته: ' . $task['TaskType'];
+    $st = $db->prepare("UPDATE HermesTasks SET Status = 'failed', ErrorMessage = ?, UpdatedAt = NOW() WHERE ID = ?");
+    $st->bind_param('si', $errMsg, $taskId);
+    $st->execute();
+    $st->close();
+    echo "-> FAILED: Unknown TaskType '{$task['TaskType']}' for Task #{$taskId}.\n";
+    return false;
 }
 
 // شاخه‌بندی دستورات دریافتی
