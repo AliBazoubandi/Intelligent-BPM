@@ -7,21 +7,35 @@ require __DIR__ . '/../inc/ui.php';
 $id = require_area('user');
 $db = app_db();
 
-$stats = [];
-$stats['categories'] = (int)$db->query('SELECT COUNT(*) c FROM ProcessCategories WHERE Active=1')->fetch_assoc()['c'];
-$stats['processes'] = (int)$db->query("SELECT COUNT(*) c FROM Processes WHERE Status='active'")->fetch_assoc()['c'];
-$badges = user_badges((int)$id['id']);
+$uid = (int)($id['id'] ?? 0);
+$userCompanyId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
+$accessCtx = user_load_access_context($db, $uid);
 
-// آخرین فرآیندهای فعال
-$latest = [];
-$res = $db->query(
-    "SELECT p.ID, p.Name, p.Version, p.UpdatedAt, cat.Title AS CatTitle
+// استخراج تمام فرآیندهای فعال مجاز کاربر بر پایه شرکت و دامنه مخاطب
+$st = $db->query(
+    "SELECT p.*, cat.Title AS CatTitle
      FROM Processes p
      JOIN ProcessCategories cat ON cat.ID = p.CategoryID
      WHERE p.Status = 'active'
-     ORDER BY p.UpdatedAt DESC LIMIT 6"
+     ORDER BY p.UpdatedAt DESC"
 );
-while ($r = $res->fetch_assoc()) $latest[] = $r;
+
+$accessibleProcs = [];
+if ($st) {
+    while ($r = $st->fetch_assoc()) {
+        if (process_user_can_access($r, $uid, $userCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
+            $accessibleProcs[] = $r;
+        }
+    }
+}
+
+$stats = [];
+$stats['categories'] = (int)$db->query('SELECT COUNT(*) c FROM ProcessCategories WHERE Active=1')->fetch_assoc()['c'];
+$stats['processes'] = count($accessibleProcs);
+$badges = user_badges($uid);
+
+// تازه‌ترین فرآیندهای فعال مجاز برای این کاربر (حداکثر ۶ مورد)
+$latest = array_slice($accessibleProcs, 0, 6);
 ?>
 <?php user_header($id, 'home', 'خوش آمدید، ' . $id['name']); ?>
 

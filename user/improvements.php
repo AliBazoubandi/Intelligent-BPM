@@ -7,6 +7,9 @@ require __DIR__ . '/../inc/ui.php';
 require_once __DIR__ . '/../inc/hermes.php';
 $id = require_area('user');
 $db = app_db();
+$uid = (int)($id['id'] ?? 0);
+$userCompanyId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
+$accessCtx = user_load_access_context($db, $uid);
 
 // به‌روزرسانی خودکار مواردی که بیش از ۲ ساعت در صف مانده‌اند به حالت خطا
 hermes_cleanup_stale_evaluations($db);
@@ -64,18 +67,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $procId = (int)($_POST['process_id'] ?? 0);
         $title = trim((string)($_POST['title'] ?? ''));
         $desc = trim((string)($_POST['description'] ?? ''));
-        $check = $db->prepare('SELECT ID FROM Processes WHERE ID = ? AND Status != "archived"');
-        $check->bind_param('i', $procId);
-        $check->execute();
-        $found = (bool)$check->get_result()->fetch_assoc();
-        $check->close();
+
+        $stP = $db->prepare('SELECT * FROM Processes WHERE ID = ? AND Status != "archived"');
+        $stP->bind_param('i', $procId);
+        $stP->execute();
+        $procRow = $stP->get_result()->fetch_assoc();
+        $stP->close();
+
+        $canAccess = $procRow && process_user_can_access(
+            $procRow,
+            $uid,
+            $userCompanyId,
+            $accessCtx['pos_id'],
+            $accessCtx['dept'],
+            $accessCtx['aud_proc_ids']
+        );
 
         if ($title === '' || mb_strlen($title) < 3) {
             flash_set('error', 'عنوان بهبود را کامل‌تر بنویسید (حداقل ۳ نویسه).');
             header('Location: improvements.php' . ($procId > 0 ? '?process=' . $procId : ''));
             exit;
-        } elseif (!$found) {
-            flash_set('error', 'فرآیند مورد نظر انتخاب نشده یا معتبر نیست.');
+        } elseif (!$canAccess) {
+            flash_set('error', 'فرآیند مورد نظر معتبر نیست یا شما مجوز ثبت پیشنهاد برای آن را ندارید.');
             header('Location: improvements.php');
             exit;
         } else {
@@ -136,10 +149,16 @@ $res = $st->get_result();
 while ($r = $res->fetch_assoc()) $mine[] = $r;
 $st->close();
 
-/* فرآیندهای قابل انتخاب */
+/* فرآیندهای قابل انتخاب (فقط فرآیندهای فعال و مجاز برای این کاربر بر مبنای شرکت و مخاطب) */
 $procs = [];
-$res = $db->query("SELECT ID, Name, CategoryID FROM Processes WHERE Status != 'archived' ORDER BY Name");
-while ($r = $res->fetch_assoc()) $procs[] = $r;
+$res = $db->query("SELECT * FROM Processes WHERE Status = 'active' ORDER BY Name");
+if ($res) {
+    while ($r = $res->fetch_assoc()) {
+        if (process_user_can_access($r, $uid, $userCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
+            $procs[] = $r;
+        }
+    }
+}
 
 $preselect = (int)($_GET['process'] ?? $_POST['process_id'] ?? 0);
 ?>

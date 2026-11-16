@@ -10,7 +10,9 @@ $db = app_db();
 
 $categories = active_categories($db);
 
-$userCompanyId = (int)($_SESSION['user']['company_id'] ?? 0);
+$uid = (int)($id['id'] ?? 0);
+$userCompanyId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
+$accessCtx = user_load_access_context($db, $uid);
 
 /* ---------- نمای جزئیات ---------- */
 $procId = (int)($_GET['id'] ?? 0);
@@ -23,16 +25,16 @@ if ($procId > 0) {
          LEFT JOIN Companies c ON c.ID = p.CompanyID
          LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
          LEFT JOIN Personnel per ON per.ID = p.OwnerPersonnelID
-         WHERE p.ID = ? AND p.Status = 'active' AND (p.CompanyID IS NULL OR p.CompanyID = ?)"
+         WHERE p.ID = ?"
     );
-    $st->bind_param('ii', $procId, $userCompanyId);
+    $st->bind_param('i', $procId);
     $st->execute();
     $proc = $st->get_result()->fetch_assoc();
     $st->close();
 
-    if (!$proc) {
+    if (!$proc || !process_user_can_access($proc, $uid, $userCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
         user_header($id, 'processes', 'فرآیند یافت نشد');
-        echo '<div class="card"><div class="empty"><span class="ico">' . app_icon('search', '', 36) . '</span><p>فرآیند مورد نظر وجود ندارد.</p><p><a href="processes.php">بازگشت به پیمایش فرآیندها</a></p></div></div>';
+        echo '<div class="card"><div class="empty"><span class="ico">' . app_icon('search', '', 36) . '</span><p>فرآیند مورد نظر وجود ندارد یا شما مجوز مشاهده آن را ندارید.</p><p><a href="processes.php">بازگشت به پیمایش فرآیندها</a></p></div></div>';
         app_footer();
         exit;
     }
@@ -106,34 +108,35 @@ if ($procId > 0) {
 /* ---------- نمای لیست ---------- */
 $catId = (int)($_GET['cat'] ?? 0);
 
-$sql = "SELECT p.ID, p.Name, p.Version, p.Status, p.UpdatedAt, p.Description, cat.Title AS CatTitle
+$sql = "SELECT p.*, cat.Title AS CatTitle
         FROM Processes p JOIN ProcessCategories cat ON cat.ID = p.CategoryID
-        WHERE p.Status = 'active' AND (p.CompanyID IS NULL OR p.CompanyID = ?)";
-$params = [$userCompanyId];
-$types = 'i';
-if ($catId > 0) {
-    $sql .= ' AND p.CategoryID = ?';
-    $params[] = $catId;
-    $types .= 'i';
+        WHERE p.Status = 'active'
+        ORDER BY cat.SortOrder, p.Name";
+
+$st = $db->query($sql);
+$allCandidateProcs = [];
+if ($st) {
+    while ($r = $st->fetch_assoc()) {
+        if (process_user_can_access($r, $uid, $userCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
+            $allCandidateProcs[] = $r;
+        }
+    }
 }
-$sql .= ' ORDER BY cat.SortOrder, p.Name';
 
-$st = $db->prepare($sql);
-$st->bind_param($types, ...$params);
-$st->execute();
-$procs = [];
-$res = $st->get_result();
-while ($r = $res->fetch_assoc()) $procs[] = $r;
-$st->close();
-
-// شمارش فرآیندهای هر دسته
+// شمارش فرآیندهای مجاز هر دسته بر اساس قوانین دامنه مخاطب
 $cnt = [];
-$stCnt = $db->prepare('SELECT CategoryID, COUNT(*) c FROM Processes WHERE Status = "active" AND (CompanyID IS NULL OR CompanyID = ?) GROUP BY CategoryID');
-$stCnt->bind_param('i', $userCompanyId);
-$stCnt->execute();
-$res = $stCnt->get_result();
-while ($r = $res->fetch_assoc()) $cnt[(int)$r['CategoryID']] = (int)$r['c'];
-$stCnt->close();
+foreach ($allCandidateProcs as $p) {
+    $cId = (int)$p['CategoryID'];
+    $cnt[$cId] = ($cnt[$cId] ?? 0) + 1;
+}
+
+// فیلتر بر اساس دسته انتخابی
+$procs = [];
+foreach ($allCandidateProcs as $p) {
+    if ($catId === 0 || (int)$p['CategoryID'] === $catId) {
+        $procs[] = $p;
+    }
+}
 ?>
 <?php user_header($id, 'processes', 'پیمایش فرآیندها'); ?>
 

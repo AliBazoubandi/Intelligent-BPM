@@ -14,22 +14,32 @@ if (empty($id['perms']['search'])) {
     exit;
 }
 
+$uid = (int)($id['id'] ?? 0);
+$userCompanyId = !empty($id['company_id']) ? (int)$id['company_id'] : null;
+$accessCtx = user_load_access_context($db, $uid);
+
 $q = trim((string)($_GET['q'] ?? ''));
 $results = [];
 if (mb_strlen($q) >= 2) {
     $like = '%' . $q . '%';
     $st = $db->prepare(
-        "SELECT p.ID, p.Name, p.Version, p.Status, p.Description, cat.Title AS CatTitle, c.Name AS CompanyName
+        "SELECT p.*, cat.Title AS CatTitle, c.Name AS CompanyName
          FROM Processes p
          JOIN ProcessCategories cat ON cat.ID = p.CategoryID
          LEFT JOIN Companies c ON c.ID = p.CompanyID
-         WHERE p.Name LIKE ? OR p.Description LIKE ? OR cat.Title LIKE ? OR c.Name LIKE ?
-         ORDER BY p.Name LIMIT 60"
+         WHERE p.Status = 'active'
+           AND (p.CompanyID IS NULL OR p.CompanyID = ?)
+           AND (p.Name LIKE ? OR p.Description LIKE ? OR cat.Title LIKE ? OR c.Name LIKE ?)
+         ORDER BY p.Name LIMIT 100"
     );
-    $st->bind_param('ssss', $like, $like, $like, $like);
+    $st->bind_param('issss', $userCompanyId, $like, $like, $like, $like);
     $st->execute();
     $res = $st->get_result();
-    while ($r = $res->fetch_assoc()) $results[] = $r;
+    while ($r = $res->fetch_assoc()) {
+        if (process_user_can_access($r, $uid, $userCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
+            $results[] = $r;
+        }
+    }
     $st->close();
 }
 ?>

@@ -9,6 +9,7 @@ require_once __DIR__ . '/icons.php';
 require_once __DIR__ . '/files.php';
 require_once __DIR__ . '/pdf_generator.php';
 require_once __DIR__ . '/bale.php';
+require_once __DIR__ . '/access.php';
 
 /**
  * بررسی در دسترس بودن سرویس هرمس
@@ -591,16 +592,41 @@ function hermes_normalize_persian(string $text): string
  * @param array $chatHistory سابقه پیام‌های قبلی [['role' => 'user'|'assistant', 'content' => '...']]
  * @return array{success:bool, answer:string, related_processes:array, error:?string}
  */
-function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHistory = []): array
+function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHistory = [], ?array $caller = null): array
 {
     $q = trim($userQuery);
     if ($q === '') {
         return ['success' => false, 'answer' => '', 'related_processes' => [], 'error' => 'لطفاً پرسش خود را مطرح کنید.'];
     }
 
-    // 1. دریافت تمام فرآیندهای فعال سازمان
+    if ($caller === null) {
+        $ident = current_identity();
+        if ($ident) {
+            $caller = [
+                'area' => $ident['kind'] ?? 'user',
+                'id' => (int)($ident['id'] ?? 0),
+                'company_id' => !empty($ident['company_id']) ? (int)$ident['company_id'] : null,
+                'is_admin' => !empty($ident['is_admin']),
+            ];
+        }
+    }
+
+    if (!$caller) {
+        return ['success' => false, 'answer' => '', 'related_processes' => [], 'error' => 'دسترسی غیرمجاز؛ هویت کاربر یا تیم مشخص نیست.'];
+    }
+
+    $area = $caller['area'] ?? 'user';
+    $callerId = (int)($caller['id'] ?? 0);
+    $callerCompanyId = !empty($caller['company_id']) ? (int)$caller['company_id'] : null;
+    $isAdmin = !empty($caller['is_admin']);
+
+    $accessCtx = ($area === 'user') ? user_load_access_context($db, $callerId) : ['pos_id' => 0, 'dept' => '', 'aud_proc_ids' => []];
+
+    // 1. دریافت فرآیندهای مجاز سازمان متناسب با شرکت و سطح دسترسی
     $st = $db->query(
         "SELECT p.ID, p.Name, p.Description, p.Version, p.Status, p.FilePath,
+                p.CompanyID, p.ResponsibleTeamID, p.OwnerPersonnelID, p.OwnerPositionID,
+                p.AudienceType, p.AudienceDepartment,
                 cat.FolderName, cat.Title AS CatTitle, cat.FolderPath AS CatFolder,
                 t.TeamName,
                 u.Name AS OwnerName, u.Family AS OwnerFamily
@@ -613,14 +639,39 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
     );
 
     $allProcs = [];
-    while ($r = $st->fetch_assoc()) {
-        $allProcs[] = $r;
+    if ($st) {
+        while ($r = $st->fetch_assoc()) {
+            $pCompId = !empty($r['CompanyID']) ? (int)$r['CompanyID'] : null;
+
+            if ($area === 'user') {
+                if (!process_user_can_access($r, $callerId, $callerCompanyId, $accessCtx['pos_id'], $accessCtx['dept'], $accessCtx['aud_proc_ids'])) {
+                    continue;
+                }
+            } elseif ($area === 'team') {
+                if (!$isAdmin) {
+                    if ($callerCompanyId !== null) {
+                        if ($pCompId !== null && $pCompId !== $callerCompanyId) {
+                            continue;
+                        }
+                    } else {
+                        if ($pCompId !== null && (int)($r['ResponsibleTeamID'] ?? 0) !== $callerId) {
+                            continue;
+                        }
+                    }
+                    if ($r['Status'] !== 'active' && (int)($r['ResponsibleTeamID'] ?? 0) !== $callerId) {
+                        continue;
+                    }
+                }
+            }
+
+            $allProcs[] = $r;
+        }
     }
 
     if (empty($allProcs)) {
         return [
             'success' => true,
-            'answer' => 'در حال حاضر هیچ فرآیند فعالی در سامانه ثبت نشده است.',
+            'answer' => 'در حال حاضر هیچ فرآیند مجاز یا فعالی در این بخش در دسترس شما قرار ندارد.',
             'related_processes' => [],
             'error' => null
         ];
@@ -658,7 +709,20 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
             if (str_contains($teamNorm, $w)) $score += 6;
         }
 
-        // بررسی فایل‌های متنی روی دیسک (پیوست‌ها و دستورالعمل‌ها)
+        $proc['doc_excerpt'] = '';
+        $proc['rag_score'] = $score;
+        $scored[] = $proc;
+    }
+
+    // مرتب‌سازی اولیه برای یافتن کاندیداهای برتر بر اساس متادیتا
+    usort($scored, fn($a, $b) => $b['rag_score'] <=> $a['rag_score']);
+
+    // محدودسازی اسکن مستندات روی دیسک به حداکثر ۱۵ فرآیند برتر (FIX 8)
+    $cap = min(15, count($scored));
+    static $ragDocFileCache = [];
+
+    for ($i = 0; $i < $cap; $i++) {
+        $proc = &$scored[$i];
         $docExcerpt = '';
         $relDir = trim((string)$proc['FilePath'], '/');
         if ($relDir === '') {
@@ -666,26 +730,36 @@ function hermes_process_rag_query(mysqli $db, string $userQuery, array $chatHist
         }
         $absDir = PROCESSES_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relDir);
         if (is_dir($absDir)) {
-            foreach (scandir($absDir) as $f) {
-                if (str_ends_with($f, '.txt') || str_ends_with($f, '.md')) {
-                    $docContent = @file_get_contents($absDir . DIRECTORY_SEPARATOR . $f);
-                    if ($docContent) {
-                        $docNorm = hermes_normalize_persian($docContent);
-                        foreach ($meaningfulWords as $w) {
-                            if (str_contains($docNorm, $w)) $score += 6;
+            $files = @scandir($absDir);
+            if (is_array($files)) {
+                foreach ($files as $f) {
+                    if (str_ends_with($f, '.txt') || str_ends_with($f, '.md')) {
+                        $filePath = $absDir . DIRECTORY_SEPARATOR . $f;
+                        $mtime = @filemtime($filePath);
+                        $cacheKey = $filePath . ':' . $mtime;
+                        if (!isset($ragDocFileCache[$cacheKey])) {
+                            // خواندن حداکثر ۶۴ کیلوبایت اول از هر سند متنی به همراه کش درون‌درخواستی
+                            $ragDocFileCache[$cacheKey] = (string)@file_get_contents($filePath, false, null, 0, 65536);
                         }
-                        if (mb_strlen($docExcerpt) < 500) {
-                            $docExcerpt .= "\n[فایل " . $f . "]: " . mb_strimwidth(trim($docContent), 0, 400, '…');
+                        $docContent = $ragDocFileCache[$cacheKey];
+                        if ($docContent !== '') {
+                            $docNorm = hermes_normalize_persian($docContent);
+                            foreach ($meaningfulWords as $w) {
+                                if (str_contains($docNorm, $w)) {
+                                    $proc['rag_score'] += 6;
+                                }
+                            }
+                            if (mb_strlen($docExcerpt) < 500) {
+                                $docExcerpt .= "\n[فایل " . $f . "]: " . mb_strimwidth(trim($docContent), 0, 400, '…');
+                            }
                         }
                     }
                 }
             }
         }
-
         $proc['doc_excerpt'] = $docExcerpt;
-        $proc['rag_score'] = $score;
-        $scored[] = $proc;
     }
+    unset($proc);
 
     // مرتب‌سازی بر اساس امتیاز
     usort($scored, fn($a, $b) => $b['rag_score'] <=> $a['rag_score']);
@@ -995,10 +1069,12 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
     require_once __DIR__ . '/files.php';
     require_once __DIR__ . '/pdf_generator.php';
 
-    // دریافت اطلاعات بهبود و فرآیند
+    // دریافت اطلاعات بهبود و فرآیند همراه با متولی سازمانی (پرسنلی و سمتی)
     $st = $db->prepare(
         "SELECT i.*, p.ID AS Pid, p.Name AS ProcName, p.Description AS ProcDesc, p.Version AS CurrentVersion,
-                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID,
+                p.FilePath, p.ResponsibleTeamID, p.OwnerPersonnelID, p.OwnerPositionID,
+                ownerPers.Name AS OwnerPersName, ownerPers.Family AS OwnerPersFamily,
+                ownerPos.Title AS OwnerPosTitle,
                 cat.Title AS CatTitle, cat.FolderName,
                 comp.Name AS CompanyName,
                 team.TeamName AS RespTeamName
@@ -1007,6 +1083,8 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
          JOIN ProcessCategories cat ON cat.ID = p.CategoryID
          LEFT JOIN Companies comp ON comp.ID = p.CompanyID
          LEFT JOIN ProcessTeams team ON team.ID = p.ResponsibleTeamID
+         LEFT JOIN Personnel ownerPers ON ownerPers.ID = p.OwnerPersonnelID
+         LEFT JOIN OrgPositions ownerPos ON ownerPos.ID = p.OwnerPositionID
          WHERE i.ID = ?"
     );
     $st->bind_param('i', $improvementId);
@@ -1017,6 +1095,10 @@ function hermes_apply_procedure_revision(mysqli $db, int $improvementId, int $te
     if (!$proc) {
         return ['success' => false, 'new_version' => '', 'pdf_name' => '', 'pdf_url' => '', 'error' => 'پیشنهاد بهبود یافت نشد.'];
     }
+
+    $proc['OwnerName'] = $proc['OwnerPersName'] ?? '';
+    $proc['OwnerFamily'] = $proc['OwnerPersFamily'] ?? '';
+    $proc['OwnerPositionTitle'] = $proc['OwnerPosTitle'] ?? '';
 
     if ((int)$proc['ResponsibleTeamID'] !== $teamId) {
         return ['success' => false, 'new_version' => '', 'pdf_name' => '', 'pdf_url' => '', 'error' => 'فقط تیم مسئول فرآیند اجازه اعمال تغییرات و به‌روزرسانی مستندات را دارد.'];
@@ -1348,6 +1430,41 @@ function hermes_answer_discussion_mention(
 }
 
 /**
+ * تشخیص و یافتن باینری مفسر پایتون به صورت چندسکویی و بر پایه تنظیمات سامانه
+ */
+function hermes_resolve_python_bin(): ?string
+{
+    static $resolved = null;
+    if ($resolved !== null) {
+        return $resolved !== '' ? $resolved : null;
+    }
+
+    if (defined('PYTHON_BIN') && PYTHON_BIN !== '') {
+        $bin = PYTHON_BIN;
+        if (file_exists($bin) || is_executable($bin)) {
+            $resolved = $bin;
+            return $bin;
+        }
+    }
+
+    // بررسی کاندیداهای متداول در متغیر محیطی PATH
+    $candidates = (PHP_OS_FAMILY === 'Windows') ? ['python', 'python3', 'py'] : ['python3', 'python'];
+    foreach ($candidates as $cmd) {
+        $testCmd = escapeshellarg($cmd) . ' -c "import sys; sys.exit(0)" 2>&1';
+        $out = [];
+        $ret = 1;
+        @exec($testCmd, $out, $ret);
+        if ($ret === 0) {
+            $resolved = $cmd;
+            return $cmd;
+        }
+    }
+
+    $resolved = '';
+    return null;
+}
+
+/**
  * تبدیل صوت مصاحبه به متن فارسی با استفاده از اسکریپت پایتون و ابزارهای صوتی
  *
  * @param string $audioFilePath مسیر فایل صوتی روی دیسک
@@ -1364,15 +1481,17 @@ function hermes_transcribe_audio(string $audioFilePath): array
         return ['success' => false, 'text' => '', 'error' => 'ماژول تبدیل صوت به متن (transcribe_audio.py) یافت نشد.'];
     }
 
-    // انتخاب باینری پایتون
-    $python = 'python';
-    if (file_exists('C:\\Python314\\python.exe')) {
-        $python = 'C:\\Python314\\python.exe';
-    } elseif (file_exists('C:\\Program Files\\Python312\\python.exe')) {
-        $python = 'C:\\Program Files\\Python312\\python.exe';
+    $python = hermes_resolve_python_bin();
+    if ($python === null) {
+        return ['success' => false, 'text' => '', 'error' => 'مفسر پایتون برای پردازش فایل صوتی در سرور یافت نشد. لطفاً متغیر PYTHON_BIN را تنظیم نمایید.'];
     }
 
-    $cmd = 'set PYTHONIOENCODING=utf-8 && ' . escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($audioFilePath) . ' 2>&1';
+    @putenv('PYTHONIOENCODING=utf-8');
+    $_ENV['PYTHONIOENCODING'] = 'utf-8';
+    $_SERVER['PYTHONIOENCODING'] = 'utf-8';
+
+    $engine = defined('TRANSCRIBE_ENGINE') ? TRANSCRIBE_ENGINE : 'local';
+    $cmd = escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($audioFilePath) . ' ' . escapeshellarg($engine) . ' 2>&1';
     $output = shell_exec($cmd);
 
     if (!$output) {
@@ -1434,17 +1553,15 @@ function hermes_extract_document_text(string $filePath, string $originalExt = ''
         }
     }
 
-    // برای فایل‌های docx و pdf از ماژول پایتون استفاده می‌کنیم
+    // برای فایل‌های docx و pdf از ماژول پایتون استفاده می‌کنیم (در صورت دسترسی)
     $pyScript = APP_ROOT . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'extract_document_text.py';
-    if (file_exists($pyScript)) {
-        $python = 'python';
-        if (file_exists('C:\\Python314\\python.exe')) {
-            $python = 'C:\\Python314\\python.exe';
-        } elseif (file_exists('C:\\Program Files\\Python312\\python.exe')) {
-            $python = 'C:\\Program Files\\Python312\\python.exe';
-        }
+    $python = hermes_resolve_python_bin();
+    if (file_exists($pyScript) && $python !== null) {
+        @putenv('PYTHONIOENCODING=utf-8');
+        $_ENV['PYTHONIOENCODING'] = 'utf-8';
+        $_SERVER['PYTHONIOENCODING'] = 'utf-8';
 
-        $cmd = 'set PYTHONIOENCODING=utf-8 && ' . escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($filePath) . ' 2>&1';
+        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($pyScript) . ' ' . escapeshellarg($filePath) . ' 2>&1';
         $output = shell_exec($cmd);
 
         if ($output && preg_match('/\{[\s\S]*\}/u', $output, $m)) {
@@ -1691,12 +1808,17 @@ function hermes_create_process_from_design(mysqli $db, array $designData, int $t
         $cleanName = $baseCleanName . ' - ویرایش ' . date('md-His') . ($suffixIndex > 2 ? '-' . $suffixIndex : '');
     }
 
+    require_once __DIR__ . '/files.php';
+
     // مسیر فیزیکی فرآیند
     $rel = $catFolder . '/' . $cleanName . '/';
     $abs = fm_abs($rel);
+    $folderCreated = false;
     if (!is_dir($abs)) {
-        @mkdir($abs, 0775, true);
-        @file_put_contents($abs . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+        if (@mkdir($abs, 0775, true)) {
+            $folderCreated = true;
+            @file_put_contents($abs . DIRECTORY_SEPARATOR . '.htaccess', "Options -Indexes\n");
+        }
     }
 
     $ownerPosId = !empty($designData['owner_position_id']) ? (int)$designData['owner_position_id'] : null;
@@ -1868,6 +1990,9 @@ function hermes_create_process_from_design(mysqli $db, array $designData, int $t
         $db->rollback();
         if (file_exists($pdfFullPath)) @unlink($pdfFullPath);
         if (file_exists($txtFullPath)) @unlink($txtFullPath);
+        if ($folderCreated && is_dir($abs)) {
+            fm_remove($abs);
+        }
         error_log("Failed to create process from design: " . $e->getMessage());
         return ['success' => false, 'error' => 'خطا در ثبت و انتشار فرآیند: ' . $e->getMessage()];
     }

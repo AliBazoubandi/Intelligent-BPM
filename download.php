@@ -6,6 +6,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/inc/auth.php';
 require_once __DIR__ . '/inc/files.php';
+require_once __DIR__ . '/inc/access.php';
 
 auth_session_start();
 
@@ -45,36 +46,81 @@ if (!fm_allowed_ext($baseName)) {
     download_error(403, 'Direct access to this file type is forbidden.');
 }
 
-// Authorization check for regular users
-if ($uid > 0 && !$tid) {
-    $db = app_db();
-    $userCompanyId = (int)($userIdentity['company_id'] ?? 0);
+$db = app_db();
 
-    // Check if the file belongs to an active process in the user's company or public
-    $firstSeg = explode('/', $rel)[0] ?? '';
-    $secondSeg = explode('/', $rel)[1] ?? '';
-    $lookupPath = $firstSeg . '/' . $secondSeg;
-
-    $st = $db->prepare("
-        SELECT ID, CompanyID, Status, AudienceType, AudienceDepartment 
-        FROM Processes 
-        WHERE ? LIKE CONCAT(FilePath, '%') 
-           OR FilePath LIKE CONCAT(?, '%')
-        LIMIT 1
+// 1. تطابق قطعی مسیر فایل با فرآیندهای ثبت‌شده در دیتابیس (Fail-Closed همراه با کش درون‌درخواستی)
+static $downloadProcessListCache = null;
+if ($downloadProcessListCache === null) {
+    $st = $db->query("
+        SELECT p.ID, p.Name, p.CompanyID, p.ResponsibleTeamID, p.OwnerPersonnelID, p.OwnerPositionID,
+               p.FilePath, p.Status, p.AudienceType, p.AudienceDepartment, cat.FolderName
+        FROM Processes p
+        JOIN ProcessCategories cat ON cat.ID = p.CategoryID
+        WHERE p.Status != 'archived'
     ");
-    $st->bind_param('ss', $rel, $lookupPath);
-    $st->execute();
-    $proc = $st->get_result()->fetch_assoc();
-    $st->close();
+    $downloadProcessListCache = $st ? $st->fetch_all(MYSQLI_ASSOC) : [];
+}
+$allProcs = $downloadProcessListCache;
 
-    if ($proc) {
-        if ($proc['Status'] !== 'active') {
+$proc = null;
+$longestMatchLen = -1;
+$normRel = trim(str_replace('\\', '/', $rel), '/');
+
+foreach ($allProcs as $p) {
+    $fp1 = trim(str_replace('\\', '/', (string)$p['FilePath']), '/');
+    $fp2 = trim(str_replace('\\', '/', (string)$p['FolderName'] . '/' . (string)$p['Name']), '/');
+    foreach ([$fp1, $fp2] as $fp) {
+        if ($fp !== '') {
+            if ($normRel === $fp || str_starts_with($normRel, $fp . '/')) {
+                $len = strlen($fp);
+                if ($len > $longestMatchLen) {
+                    $longestMatchLen = $len;
+                    $proc = $p;
+                }
+            }
+        }
+    }
+}
+
+// سیاست Fail-Closed: اگر فایل به هیچ فرآیند ثبت‌شده‌ای تعلق نداشته باشد، دسترسی مسدود می‌شود
+if (!$proc) {
+    download_error(404, 'Requested document does not match any registered process.');
+}
+
+$procCompanyId = !empty($proc['CompanyID']) ? (int)$proc['CompanyID'] : null;
+$respTeamId = !empty($proc['ResponsibleTeamID']) ? (int)$proc['ResponsibleTeamID'] : 0;
+
+// 2. بررسی دسترسی تیم‌ها (Team Authorization)
+if ($tid > 0) {
+    $teamCompanyId = !empty($teamIdentity['company_id']) ? (int)$teamIdentity['company_id'] : 0;
+    $isAdmin = !empty($teamIdentity['is_admin']);
+
+    if (!$isAdmin) {
+        if ($teamCompanyId > 0) {
+            // تفکیک چندمستأجری: تیم شرکت‌دار فقط مجاز به دانلود فرآیندهای شرکت خود یا فرآیندهای عمومی است
+            if ($procCompanyId !== null && $procCompanyId !== $teamCompanyId) {
+                download_error(403, 'Process document belongs to a different company.');
+            }
+        } else {
+            // تیم سراسری بدون شرکت (غیرادمین): فقط مجاز به فرآیندهای بدون شرکت یا فرآیندی که تیم مسئول آن است
+            if ($procCompanyId !== null && $respTeamId !== $tid) {
+                download_error(403, 'Process document belongs to a different company.');
+            }
+        }
+
+        // فرآیندهای غیرفعال فقط برای تیم مسئول همان فرآیند در دسترس است
+        if ($proc['Status'] !== 'active' && $respTeamId !== $tid) {
             download_error(403, 'Process is not active.');
         }
+    }
+}
 
-        if ($proc['CompanyID'] !== null && (int)$proc['CompanyID'] !== $userCompanyId) {
-            download_error(403, 'Process document belongs to a different company.');
-        }
+// 3. بررسی دسترسی کاربران عادی (User Authorization - FIX R1)
+if ($uid > 0 && !$tid) {
+    $userCompanyId = !empty($userIdentity['company_id']) ? (int)$userIdentity['company_id'] : null;
+
+    if (!process_user_has_access($db, $proc, $uid, $userCompanyId)) {
+        download_error(403, 'You do not have permission to view or download this process document.');
     }
 }
 

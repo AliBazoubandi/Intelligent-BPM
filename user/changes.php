@@ -16,7 +16,9 @@ $stUser->execute();
 $userRow = $stUser->get_result()->fetch_assoc();
 $stUser->close();
 
-$userPosId = (int)($userRow['OrgPositionID'] ?? 0);
+$accessCtx = user_load_access_context($db, $uid);
+$userPosId = $accessCtx['pos_id'];
+$userDept = $accessCtx['dept'];
 $userCompId = (int)($userRow['CompanyID'] ?? 0);
 
 $st = $db->prepare(
@@ -36,11 +38,12 @@ $st = $db->prepare(
         OR (op.CurrentPersonnelID = ?)
         OR (imp.requester_type='user' AND imp.requester_id = ?)
         OR (p.AudienceType = 'all_company' AND (p.CompanyID = ? OR p.CompanyID IS NULL))
+        OR (p.AudienceType = 'department' AND p.AudienceDepartment = ? AND (p.CompanyID = ? OR p.CompanyID IS NULL))
         OR (p.ID IN (SELECT ProcessID FROM ProcessAudience WHERE (TargetType='personnel' AND TargetID = ?) OR (TargetType='position' AND TargetID = ?)))
      ORDER BY ch.CreatedAt DESC
      LIMIT 200"
 );
-$st->bind_param('iiiiiii', $uid, $uid, $uid, $uid, $userCompId, $uid, $userPosId);
+$st->bind_param('iiiiissii', $uid, $uid, $uid, $uid, $userCompId, $userDept, $userCompId, $uid, $userPosId);
 $st->execute();
 $rows = [];
 $res = $st->get_result();
