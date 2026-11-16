@@ -56,12 +56,50 @@ function fm_clean_name(string $name): ?string
     return $name;
 }
 
-/** فرمت‌های مجاز بارگذاری */
+/**
+ * فرمت‌های مجاز بارگذاری و اعتبارسنجی پسوندها
+ * بررسی می‌کند که پسوند نهایی در لیست سفید مجاز باشد و هیچ پسوند خطرناک یا اجرایی
+ * در هیچ کجای نام فایل (مثل x.php.jpg برای دور زدن وب‌سرورها و Apache mod_mime) وجود نداشته باشد.
+ */
 function fm_allowed_ext(string $name): bool
 {
-    static $allowed = ['pdf','doc','docx','xls','xlsx','ppt','pptx','vsd','vsdx','txt','csv','zip','rar','7z','jpg','jpeg','png','gif','webp','mp4'];
-    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-    return $ext !== '' && in_array($ext, $allowed, true);
+    static $allowed = [
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+        'vsd', 'vsdx', 'txt', 'csv', 'zip', 'rar', '7z',
+        'jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4'
+    ];
+    static $blocked = [
+        'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'pht', 'phtml', 'phar', 'phps',
+        'inc', 'pl', 'py', 'cgi', 'asp', 'aspx', 'jsp', 'jspx', 'cfm',
+        'sh', 'bash', 'exe', 'bat', 'cmd', 'vbs', 'ps1', 'dll',
+        'htaccess', 'htpasswd', 'ini', 'env', 'config', 'sql'
+    ];
+
+    $name = trim($name);
+    if ($name === '' || str_contains($name, "\0")) {
+        return false;
+    }
+
+    $lower = strtolower($name);
+    $parts = explode('.', $lower);
+    if (count($parts) < 2) {
+        return false;
+    }
+
+    // بررسی تمام بخش‌های پسوند پس از نام اصلی؛ وجود هرگونه پسوند مسدود یا باینری منجر به رد می‌شود
+    for ($i = 1; $i < count($parts); $i++) {
+        $seg = trim($parts[$i]);
+        if ($seg === '' || in_array($seg, $blocked, true)) {
+            return false;
+        }
+        if (preg_match('/^(php[0-9]*|pht|phtml|phar)$/i', $seg)) {
+            return false;
+        }
+    }
+
+    // پسوند نهایی حتماً باید در لیست مجاز قرار داشته باشد
+    $finalExt = end($parts);
+    return in_array($finalExt, $allowed, true);
 }
 
 /** فهرست محتوای یک پوشه مطلق: ['dirs'=>[…], 'files'=>[…]] */
@@ -86,32 +124,48 @@ function fm_list(string $absDir): array
     return $out;
 }
 
+/** استخراج متادیتا و حجم پوشه‌ها به همراه کش درون‌حافظه‌ای جهت بهینه‌سازی سرعت */
+function fm_dir_meta(string $absDir): array
+{
+    static $cache = [];
+    $real = realpath($absDir);
+    if ($real === false || !is_dir($real)) {
+        return ['size' => 0, 'files' => 0];
+    }
+    if (isset($cache[$real])) {
+        return $cache[$real];
+    }
+
+    $size = 0;
+    $files = 0;
+    $items = @scandir($real);
+    if ($items) {
+        foreach ($items as $f) {
+            if ($f === '.' || $f === '..' || str_starts_with($f, '.')) continue;
+            $p = $real . DIRECTORY_SEPARATOR . $f;
+            if (is_dir($p)) {
+                $sub = fm_dir_meta($p);
+                $size += $sub['size'];
+                $files += $sub['files'];
+            } elseif (is_file($p)) {
+                $size += (int)@filesize($p);
+                $files++;
+            }
+        }
+    }
+    return $cache[$real] = ['size' => $size, 'files' => $files];
+}
+
 /** شمارش فایل‌ها (بازگشتی) و پوشه‌های یک درخت */
 function fm_count_files(string $absDir): int
 {
-    $n = 0;
-    if (!is_dir($absDir)) return 0;
-    foreach (scandir($absDir) as $f) {
-        if ($f === '.' || $f === '..') continue;
-        $p = $absDir . DIRECTORY_SEPARATOR . $f;
-        if (is_dir($p)) $n += fm_count_files($p);
-        elseif (is_file($p) && !str_starts_with($f, '.')) $n++;
-    }
-    return $n;
+    return fm_dir_meta($absDir)['files'];
 }
 
 /** حجم کل پوشه (بازگشتی) */
 function fm_dir_size(string $absDir): int
 {
-    $s = 0;
-    if (!is_dir($absDir)) return $s;
-    foreach (scandir($absDir) as $f) {
-        if ($f === '.' || $f === '..') continue;
-        $p = $absDir . DIRECTORY_SEPARATOR . $f;
-        if (is_dir($p)) $s += fm_dir_size($p);
-        elseif (is_file($p) && !str_starts_with($f, '.')) $s += (int)@filesize($p);
-    }
-    return $s;
+    return fm_dir_meta($absDir)['size'];
 }
 
 /** همه پوشه‌های موجود برای انتخاب مقصد انتقال */
@@ -136,12 +190,12 @@ function fm_all_dirs(string $rel = '', int $maxDepth = 6): array
     return $out;
 }
 
-/** URL عمومی فایل (هم‌الگو با تب مستندات) */
+/** URL امن دانلود فایل فرآیند از طریق نقطه پایانی احراز هویت شده */
 function fm_url(string $rel): string
 {
     $rel = fm_normalize_rel($rel);
-    if ($rel === '') return BASE_URL . '/processes/';
-    return BASE_URL . '/processes/' . implode('/', array_map('rawurlencode', explode('/', $rel)));
+    if ($rel === '') return BASE_URL . '/download.php';
+    return BASE_URL . '/download.php?path=' . rawurlencode($rel);
 }
 
 /** ذخیره امن یک فایل آپلودی در پوشه مطلق؛ در خطا پیام را در &$err می‌گذارد */
@@ -185,65 +239,89 @@ function fm_remove(string $abs): bool
  */
 function fm_db_map(mysqli $db, string $rel): array
 {
+    static $catMap = null;
+    static $procMap = null;
+    static $cache = [];
+
     $rel = fm_normalize_rel($rel);
-    $res = ['kind' => null, 'label' => '', 'process_id' => 0, 'category_id' => 0, 'team_id' => null, 'team_name' => null];
-    if ($rel === '') return $res;
+    $default = ['kind' => null, 'label' => '', 'process_id' => 0, 'category_id' => 0, 'team_id' => null, 'team_name' => null];
+    if ($rel === '') return $default;
+
+    if (isset($cache[$rel])) {
+        return $cache[$rel];
+    }
+
+    if ($catMap === null) {
+        $catMap = [];
+        $res = $db->query('SELECT ID, Title, FolderName FROM ProcessCategories WHERE Active = 1');
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $catMap[$r['FolderName']] = $r;
+                $catMap[$r['Title']] = $r;
+            }
+        }
+
+        $procMap = [];
+        $res = $db->query('
+            SELECT p.ID, p.Name, p.CategoryID, p.FilePath, p.ResponsibleTeamID, t.TeamName, c.FolderName, c.Title AS CatTitle
+            FROM Processes p
+            JOIN ProcessCategories c ON c.ID = p.CategoryID
+            LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
+            WHERE p.Status != "archived"
+        ');
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $normalizedFp = trim(str_replace('\\', '/', (string)$r['FilePath']), '/');
+                if ($normalizedFp !== '') {
+                    $procMap[$normalizedFp] = $r;
+                }
+                $comboKey = $r['FolderName'] . '/' . $r['Name'];
+                $procMap[$comboKey] = $r;
+            }
+        }
+    }
+
+    $res = $default;
     $parts = explode('/', $rel);
 
     if (count($parts) === 1) {
-        $st = $db->prepare('SELECT ID, Title FROM ProcessCategories WHERE FolderName = ? OR Title = ? LIMIT 1');
-        $n = $parts[0];
-        $st->bind_param('ss', $n, $n);
-        $st->execute();
-        $row = $st->get_result()->fetch_assoc();
-        $st->close();
-        if ($row) { $res['kind'] = 'category'; $res['label'] = $row['Title']; $res['category_id'] = (int)$row['ID']; }
-        return $res;
+        if (isset($catMap[$parts[0]])) {
+            $row = $catMap[$parts[0]];
+            $res['kind'] = 'category';
+            $res['label'] = $row['Title'];
+            $res['category_id'] = (int)$row['ID'];
+        }
+        return $cache[$rel] = $res;
     }
 
-    $needle = rtrim($rel, '/') . '/';
-    $st = $db->prepare(
-        'SELECT p.ID, p.Name, p.CategoryID, p.ResponsibleTeamID, t.TeamName
-         FROM Processes p LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
-         WHERE REPLACE(p.FilePath, CHAR(92), "/") = ? LIMIT 1'
-    );
-    $st->bind_param('s', $needle);
-    $st->execute();
-    $row = $st->get_result()->fetch_assoc();
-    $st->close();
-
-    if (!$row && count($parts) === 2) {
-        // پوشه‌های نمونه: دسته/نام-فرآیند
-        $st = $db->prepare(
-            'SELECT p.ID, p.Name, p.CategoryID, p.ResponsibleTeamID, t.TeamName
-             FROM Processes p
-             JOIN ProcessCategories c ON c.ID = p.CategoryID
-             LEFT JOIN ProcessTeams t ON t.ID = p.ResponsibleTeamID
-             WHERE (c.FolderName = ? OR c.Title = ?) AND (p.Name = ?) LIMIT 1'
-        );
-        $a = $parts[0]; $b = $parts[1];
-        $st->bind_param('sss', $a, $a, $b);
-        $st->execute();
-        $row = $st->get_result()->fetch_assoc();
-        $st->close();
-    }
-
-    if ($row) {
+    $needle = rtrim($rel, '/');
+    if (isset($procMap[$needle])) {
+        $row = $procMap[$needle];
         $res['kind'] = 'process';
         $res['label'] = $row['Name'];
         $res['process_id'] = (int)$row['ID'];
         $res['category_id'] = (int)$row['CategoryID'];
         $res['team_id'] = $row['ResponsibleTeamID'] !== null ? (int)$row['ResponsibleTeamID'] : null;
         $res['team_name'] = $row['TeamName'];
-        return $res;
+        return $cache[$rel] = $res;
     }
-    // زیرمجموعه یک فرآیند
-    foreach ($parts as $i => $_) {
-        if ($i === 0) continue;
-        $upper = fm_db_map($db, implode('/', array_slice($parts, 0, $i)));
-        if ($upper['kind'] === 'process') return $upper;
+
+    // بررسی بخش‌های والد جهت یافتن فرآیند بالادستی
+    for ($i = count($parts) - 1; $i >= 1; $i--) {
+        $parentRel = implode('/', array_slice($parts, 0, $i));
+        if (isset($procMap[$parentRel])) {
+            $row = $procMap[$parentRel];
+            $res['kind'] = 'process';
+            $res['label'] = $row['Name'];
+            $res['process_id'] = (int)$row['ID'];
+            $res['category_id'] = (int)$row['CategoryID'];
+            $res['team_id'] = $row['ResponsibleTeamID'] !== null ? (int)$row['ResponsibleTeamID'] : null;
+            $res['team_name'] = $row['TeamName'];
+            return $cache[$rel] = $res;
+        }
     }
-    return $res;
+
+    return $cache[$rel] = $res;
 }
 
 /** بازگرداندن لیست پوشه‌های یک درخت برای نمایش */

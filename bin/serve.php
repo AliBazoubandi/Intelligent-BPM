@@ -28,10 +28,15 @@ chdir($rootDir);
 require_once $rootDir . '/config.php';
 require_once $rootDir . '/inc/hermes.php';
 
-$options = getopt('', ['no-browser', 'port::', 'help']);
+$options = getopt('', ['no-browser', 'port::', 'lan', 'host::', 'help']);
 if (isset($options['help'])) {
     echo "RabinFlow Development Server Launcher\n";
-    echo "Usage: php bin/serve.php [--port=8000] [--no-browser]\n";
+    echo "Usage: php bin/serve.php [--port=8000] [--no-browser] [--lan]\n\n";
+    echo "Options:\n";
+    echo "  --port=<port>   Specify port number (default: 8000)\n";
+    echo "  --no-browser    Do not automatically open default web browser\n";
+    echo "  --lan           Bind to 0.0.0.0 for LAN access (default: 127.0.0.1 for local isolation)\n";
+    echo "  --help          Show this help message\n";
     exit(0);
 }
 
@@ -40,6 +45,7 @@ if ($port <= 0 || $port > 65535) {
     $port = 8000;
 }
 $autoOpenBrowser = !isset($options['no-browser']);
+$bindHost = isset($options['lan']) ? '0.0.0.0' : (isset($options['host']) ? (string)$options['host'] : '127.0.0.1');
 
 echo "\n";
 echo "====================================================================\n";
@@ -132,28 +138,25 @@ echo "\n";
 echo "[4/4] Starting RabinFlow Web Application...\n";
 
 // Check if port is already active
-$fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 1);
+$checkHost = ($bindHost === '0.0.0.0') ? '127.0.0.1' : $bindHost;
+$fp = @fsockopen($checkHost, $port, $errno, $errstr, 1);
 $alreadyRunning = false;
 if ($fp) {
     fclose($fp);
     $alreadyRunning = true;
 }
 
-$hostUrl = "http://localhost:{$port}";
+$hostUrl = "http://127.0.0.1:{$port}";
 $userUrl = "{$hostUrl}/user/";
 $teamUrl = "{$hostUrl}/team/";
 
 echo "====================================================================\n";
-echo "                    RabinFlow Testing Portals                       \n";
+echo "                    RabinFlow Portals                               \n";
 echo "====================================================================\n";
-echo "  🌐 Main Landing:      {$hostUrl}/\n\n";
+echo "  🌐 Main Landing:      {$hostUrl}/\n";
 echo "  👤 User / Employee:   {$userUrl}\n";
-echo "     - Personnel Code:  P-1001   (Maryam Rezaei)\n";
-echo "     - Password:        123456\n\n";
 echo "  👥 Team Console:      {$teamUrl}\n";
-echo "     - Team Code:       TP-1000  (Administrative Process Team)\n";
-echo "     - Password:        team123\n\n";
-echo "  💬 Hermes AI Chat:    {$hostUrl}/ask.php\n";
+echo "  🔒 Bind Host:         {$bindHost} " . ($bindHost === '127.0.0.1' ? '(Local-only security mode)' : '[WARNING: LAN Accessible]') . "\n";
 echo "====================================================================\n";
 echo "  Press Ctrl+C in this console at any time to stop the server.\n";
 echo "====================================================================\n\n";
@@ -185,6 +188,7 @@ if (!$phpBin || !file_exists($phpBin)) {
     $phpBin = defined('PHP_BIN') && file_exists(PHP_BIN) ? PHP_BIN : 'php';
 }
 
-echo "Starting PHP built-in web server on 0.0.0.0:{$port} ...\n\n";
-$cmd = sprintf('"%s" -S 0.0.0.0:%d -t "%s"', $phpBin, $port, $rootDir);
+$routerScript = $rootDir . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'router.php';
+echo "Starting PHP built-in web server on {$bindHost}:{$port} with router security ...\n\n";
+$cmd = sprintf('"%s" -S %s:%d -t "%s" "%s"', $phpBin, $bindHost, $port, $rootDir, $routerScript);
 passthru($cmd);

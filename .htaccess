@@ -1,11 +1,47 @@
-# Block direct access to environment files and sensitive scripts
-<FilesMatch "^\.(env|git)">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
+# RabinFlow - Apache 2.4 / 2.2 Security Configuration
+Options -Indexes
 
-<FilesMatch "\.(sql|log|md|json)$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
+# 1. Deny access to hidden files and directories (dotfiles like .env, .git, .installed)
+<IfModule mod_authz_core.c>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^\.">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
 
+# 2. Deny direct access to sensitive file extensions
+<IfModule mod_authz_core.c>
+    <FilesMatch "(?i)\.(sql|log|md|json|env|lock|ini|bak|old|tmp|sh|bat|cmd|py|pyc|htaccess)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "(?i)\.(sql|log|md|json|env|lock|ini|bak|old|tmp|sh|bat|cmd|py|pyc|htaccess)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# 3. Deny access to internal configuration and install files
+<IfModule mod_authz_core.c>
+    <FilesMatch "(?i)^(config\.php|install\.php)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "(?i)^(config\.php|install\.php)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# 4. Standard custom error pages (500, 404, 403, 401)
+ErrorDocument 401 /error.php?code=401
+ErrorDocument 403 /error.php?code=403
+ErrorDocument 404 /error.php?code=404
+ErrorDocument 500 /error.php?code=500

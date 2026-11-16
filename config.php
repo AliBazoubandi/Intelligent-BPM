@@ -58,11 +58,21 @@ load_env(APP_ROOT . DIRECTORY_SEPARATOR . '.env');
 define('APP_NAME', (string)env('APP_NAME', 'RabinFlow'));
 define('APP_TITLE_FA', 'رابین‌فلو');
 
+define('APP_ENV', (string)env('APP_ENV', 'dev'));
+define('APP_URL', (string)env('APP_URL', 'http://localhost:8000'));
+
 // دیتابیس
 define('DB_HOST', (string)env('DB_HOST', 'localhost'));
 define('DB_USER', (string)env('DB_USER', 'root'));
 define('DB_PASS', (string)env('DB_PASS', ''));
 define('DB_NAME', (string)env('DB_NAME', 'org_process'));
+
+// محافظت از امنیت محیط عملیاتی: عدم استفاده از رمز خالی root در پروداکشن
+if (APP_ENV === 'production' && DB_USER === 'root' && DB_PASS === '') {
+    if (!in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1', ''], true)) {
+        die("CRITICAL SECURITY ERROR: Running with default blank database password in production is prohibited.");
+    }
+}
 
 // تنظیمات ایجنت هوش مصنوعی هرمس (Hermes Agent)
 define('HERMES_URL', (string)env('HERMES_URL', 'http://127.0.0.1:8642/v1/chat/completions'));
@@ -79,11 +89,15 @@ define('BALE_API_KEY', (string)env('BALE_API_KEY', ''));
 define('BALE_BOT_TOKEN', (string)env('BALE_BOT_TOKEN', ''));
 define('BALE_API_ENABLED', (bool)filter_var(env('BALE_API_ENABLED', true), FILTER_VALIDATE_BOOLEAN));
 define('BALE_TIMEOUT', (int)env('BALE_TIMEOUT', 15));
-define('APP_URL', (string)env('APP_URL', 'http://localhost:8000'));
 
 if (!defined('BASE_URL')) {
-    if (PHP_SAPI === 'cli') {
-        define('BASE_URL', (string)env('BASE_URL', ''));
+    $envBase = (string)env('BASE_URL', '');
+    if ($envBase !== '') {
+        define('BASE_URL', rtrim($envBase, '/'));
+    } elseif (defined('APP_URL') && APP_URL !== '' && parse_url(APP_URL, PHP_URL_PATH)) {
+        define('BASE_URL', rtrim((string)parse_url(APP_URL, PHP_URL_PATH), '/'));
+    } elseif (PHP_SAPI === 'cli') {
+        define('BASE_URL', '');
     } else {
         $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
         $dir = trim(str_replace('\\', '/', dirname($scriptName)), '/');

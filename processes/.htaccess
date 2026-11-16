@@ -1,1 +1,23 @@
 Options -Indexes
+
+# Apache 2.4 & 2.2: Block execution and direct access to PHP scripts and executable files
+<FilesMatch "(?i)\.(php|php[0-9]*|phtml|phar|phps|inc|sh|pl|py|cgi|asp|aspx|jsp|exe|bat|cmd)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Disable PHP engine if mod_php is present
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
